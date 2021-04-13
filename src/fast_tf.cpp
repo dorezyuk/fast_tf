@@ -36,7 +36,6 @@ timed_sequence::timed_sequence(const ros::Duration& _dur) noexcept :
 void
 timed_sequence::insert(const ros::Time& _time,
                        const Eigen::Isometry3d& _data) noexcept {
-  // todo we also might check that _time is smaller then ros::Time::now()
   auto res = map_.emplace(_time, _data);
   // we replace it with the old data with the newly passed data in case we
   // already have a transform for the given time-stamp.
@@ -45,7 +44,7 @@ timed_sequence::insert(const ros::Time& _time,
     res.first->second = _data;
   }
   // rebalance
-  auto lb = map_.lower_bound(ros::Time::now() - dur_);
+  auto lb = map_.lower_bound(std::prev(map_.end())->first - dur_);
   map_.erase(map_.begin(), lb);
 }
 

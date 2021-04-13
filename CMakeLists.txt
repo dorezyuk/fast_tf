@@ -91,11 +91,17 @@ if(CATKIN_ENABLE_TESTING)
   target_link_libraries(${PROJECT_NAME}_gtest ${PROJECT_NAME} gtest_main)
 endif()
 
-## Add gtest based cpp test target and link libraries
-#
-# if(TARGET ${PROJECT_NAME}-test)
-#   target_link_libraries(${PROJECT_NAME}-test ${PROJECT_NAME})
-# endif()
+###############
+## Benchmark ##
+###############
 
-## Add folders to be run by python nosetests
-# catkin_add_nosetests(test)
+set(${PROJECT_NAME}_BENCHMARK "Enable benchmarking" ON)
+if(${PROJECT_NAME}_BENCHMARK)
+  find_package(benchmark)
+  if(benchmark_FOUND)
+    add_executable(${PROJECT_NAME}_perf perf/perf_timed_sequence.cpp)
+    target_link_libraries(${PROJECT_NAME}_perf benchmark::benchmark ${PROJECT_NAME})
+  else()
+    message("benchmark library not found")
+  endif()
+endif()

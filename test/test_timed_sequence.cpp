@@ -108,8 +108,6 @@ TEST_F(timed_sequence_fixture, rebalance) {
   const ros::Time now(ros::Time::now());
   ts.insert(now, data1);
 
-  // sleep a little bit and make sure that we return something to the query
-  std::this_thread::sleep_for(std::chrono::seconds(1));
   ASSERT_NO_THROW(ts.closest(now, ros::Duration(0.5)));
 
   // update the data (this will trigger the rebalancing)

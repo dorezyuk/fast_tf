@@ -9,7 +9,7 @@
 #include <Eigen/Geometry>
 
 // std-lib
-#include <map>
+#include <boost/container/flat_map.hpp>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -68,7 +68,7 @@ struct timed_sequence : public base_sequence {
 
 private:
   ros::Duration dur_;  ///< the duration how long to keep the data
-  using impl_t = std::map<ros::Time, Eigen::Isometry3d>;
+  using impl_t = boost::container::flat_map<ros::Duration, Eigen::Isometry3d>;
   impl_t map_;  ///< impl holding the data
 };
 
