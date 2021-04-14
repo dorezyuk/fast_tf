@@ -41,14 +41,15 @@ base_sequence::insert([[gnu::unused]] const time_t& _time,
 
 const Eigen::Isometry3d&
 base_sequence::closest([[gnu::unused]] const time_t& _time,
-                       [[gnu::unused]] const ros::Duration& _tolerance) {
+                       [[gnu::unused]] const duration_t& _tolerance) {
   return data_;
 }
 
-timed_sequence::timed_sequence() noexcept : dur_(500) {}
-timed_sequence::timed_sequence(const ros::Duration& _dur) noexcept :
-    dur_((int)(_dur.toSec() * 1000)) {
-  assert(dur_ >= ros::Duration(0) && "duration must be positive");
+timed_sequence::timed_sequence() noexcept :
+    dur_(std::chrono::duration_cast<duration_t>(
+        std::chrono::milliseconds(500))) {}
+timed_sequence::timed_sequence(const duration_t& _dur) noexcept : dur_(_dur) {
+  assert(dur_ >= duration_t(0) && "duration must be positive");
 }
 
 void
@@ -66,21 +67,19 @@ timed_sequence::insert(const time_t& _time,
   map_.erase(map_.begin(), lb);
 }
 
-/// @brief lerp-implementation which returns the interpolation between _l and _r
-/// @param _l left value
-/// @param _r right value
-/// @param _t the scale, must be in the interval [0, 1]
+/// @brief returns the vector interpolation between _l and _r.
+/// @param _l left value.
+/// @param _r right value.
+/// @param _t the scale, must be in the interval [0, 1].
 static Eigen::Vector3d
 lerp(const Eigen::Vector3d& _l, const Eigen::Vector3d& _r, double _t) noexcept {
-  assert(_t >= 0 && "scale must be bigger than 0");
-  assert(_t <= 1 && "scale must be smaller than 1");
   return _l * _t + (1 - _t) * _r;
 }
 
-/// @brief lerp-implementation which returns the interpolation between _l and _r
-/// @param _l left value
-/// @param _r right value
-/// @param _t the scale, must be in the interval [0, 1]
+/// @brief returns the transform interpolation between _l and _r.
+/// @param _l left value.
+/// @param _r right value.
+/// @param _t the scale, must be in the interval [0, 1].
 static Eigen::Isometry3d
 lerp(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r,
      double _t) noexcept {
@@ -94,7 +93,7 @@ lerp(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r,
 }
 
 const Eigen::Isometry3d&
-timed_sequence::closest(const time_t& _time, const ros::Duration& _tolerance) {
+timed_sequence::closest(const time_t& _time, const duration_t& _tolerance) {
   // no need to search if the map is empty..
   if (map_.empty())
     throw std::runtime_error("empty map");
@@ -107,8 +106,8 @@ timed_sequence::closest(const time_t& _time, const ros::Duration& _tolerance) {
     assert(lb != map_.end() && "lower_bound cannot be map::end");
 
     // check if we respect the upper bound of the given interval.
-    // if (lb->first > _time + _tolerance)
-    //   throw std::runtime_error("no data: extrapolation in the future");
+    if (lb->first > _time + _tolerance)
+      throw std::runtime_error("no data: extrapolation in the future");
 
     return lb->second;
   }
@@ -117,18 +116,21 @@ timed_sequence::closest(const time_t& _time, const ros::Duration& _tolerance) {
     auto lower = std::prev(lb);
 
     // check if we respect the lower bound of the given interval.
-    // if (lower->first < _time - _tolerance)
-    //   throw std::runtime_error("no data: extrapolation in the past");
+    if (lower->first < _time - _tolerance)
+      throw std::runtime_error("no data: extrapolation in the past");
 
     return lower->second;
   }
   else {
     // get the prev iterator
     const auto lower = std::prev(lb);
-    // const auto ratio =
-    //     (_time - lower->first).toSec() / (lb->first - lower->first).toSec();
+    // note the count returns a signed integer. the default duration is
+    // nanoseconds. the nanoseconds must cover +/- 292 yeards. see
+    // https://en.cppreference.com/w/cpp/chrono/duration
+    const auto ratio = static_cast<double>((_time - lower->first).count()) /
+                       (lb->first - lower->first).count();
 
-    // data_ = lerp(lower->second, lb->second, ratio);
+    data_ = lerp(lower->second, lb->second, ratio);
     return data_;
   }
 }
@@ -144,10 +146,26 @@ transform_tree::_leaf::_leaf(const std::string& _frame_id, const _leaf& _parent,
     parent(&_parent),
     data(std::move(_data)) {}
 
+/// @brief factory returning either base_sequence or timed_sequence instances.
 static std::unique_ptr<base_sequence>
 sequence_factory(bool _static) noexcept {
   return _static ? std::make_unique<base_sequence>()
                  : std::make_unique<timed_sequence>();
+}
+
+/// @brief conversion from ros::Time to std::chrono.
+static base_sequence::time_t
+to_time(const ros::Time& _time) {
+  using namespace std::chrono;
+  return base_sequence::time_t(seconds(_time.sec)) + nanoseconds(_time.nsec);
+}
+
+/// @brief conversion from ros::Duration to std::chrono.
+static base_sequence::duration_t
+to_duration(const ros::Duration& _dur) {
+  using namespace std::chrono;
+  return duration_cast<base_sequence::duration_t>(seconds(_dur.sec)) +
+         duration_cast<base_sequence::duration_t>(nanoseconds(_dur.nsec));
 }
 
 void
@@ -186,8 +204,8 @@ transform_tree::add(const geometry_msgs::TransformStamped& _tf, bool _static) {
       throw std::runtime_error("child cannot have multiple parents");
   }
 
-  // child->second.data->insert(ros::Time(_tf.header.stamp),
-  //                            tf2::transformToEigen(_tf));
+  child->second.data->insert(to_time(_tf.header.stamp),
+                             tf2::transformToEigen(_tf));
 }
 
 geometry_msgs::TransformStamped
@@ -215,10 +233,14 @@ transform_tree::get(const std::string& _target, const std::string& _source,
 
   // walk up the tree until we have reached the same depth for both
   Eigen::Isometry3d source_root, target_root;
+  // convert to std::chrono
+  const base_sequence::time_t time(to_time(_time));
+  const base_sequence::duration_t tolerance(to_duration(_tolerance));
+
   while (target->depth < source->depth) {
     // get the transformation of the source branch for the current depth and
     // advance to the next stage.
-    // source_root = source_root * source->data->closest(_time, _tolerance);
+    source_root = source_root * source->data->closest(time, tolerance);
     source = source->parent;
     assert(source && "tree holds a nullptr");
   }
@@ -228,10 +250,10 @@ transform_tree::get(const std::string& _target, const std::string& _source,
 
   // now walk up with both
   while (target->parent != source->parent) {
-    // source_root = source_root * source->data->closest(_time, _tolerance);
+    source_root = source_root * source->data->closest(time, tolerance);
     source = source->parent;
 
-    // target_root = target_root * target->data->closest(_time, _tolerance);
+    target_root = target_root * target->data->closest(time, tolerance);
     target = target->parent;
 
     assert(source && "tree holds a nullptr");

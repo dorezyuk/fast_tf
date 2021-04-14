@@ -3,8 +3,12 @@
 
 // ros
 #include <geometry_msgs/TransformStamped.h>
-#include <ros/duration.h>
-#include <ros/time.h>
+
+// forward declaration of ros-types, since we just need them for the interface
+namespace ros {
+class Duration;
+class Time;
+}  // namespace ros
 
 #include <Eigen/Geometry>
 
@@ -27,7 +31,11 @@ struct base_sequence {
   virtual ~base_sequence() = default;
   base_sequence() = default;
 
-  using time_t = std::chrono::time_point<std::chrono::system_clock>;
+  // replacing the ros::Time with std::chrono::time_point yields in ~100%
+  // speedup (!) of the timed_sequence::insert function.
+  using clock_t = std::chrono::system_clock;
+  using time_t = std::chrono::time_point<clock_t>;
+  using duration_t = std::chrono::nanoseconds;
 
   /// @brief stores _data interally.
   virtual void
@@ -35,7 +43,7 @@ struct base_sequence {
 
   /// @brief returns the stored data.
   [[nodiscard]] virtual const Eigen::Isometry3d&
-  closest(const time_t& _time, const ros::Duration& _tolerance);
+  closest(const time_t& _time, const duration_t& _tolerance);
 
 protected:
   Eigen::Isometry3d data_;
@@ -48,16 +56,16 @@ protected:
 struct timed_sequence : public base_sequence {
   /// @brief c'tor with the storage duration
   /// @param _dur positive duration
-  explicit timed_sequence(const ros::Duration& _dur) noexcept;
+  explicit timed_sequence(const duration_t& _dur) noexcept;
   timed_sequence() noexcept;
 
   /// @brief inserts new data and prunes stale data
   /// @param _time the time-stamp of the data
   /// @param _data the new data to add
   ///
-  /// function will remove data with the time-stamps older then ros::Time::now()
-  /// - dur_. note: if the time-stamp is not unique, the newer data will
-  /// overwrite the older one.
+  /// function will prune data older then the newest data - storage duration.
+  /// the passed _data will replace the old data if the passed _time is not
+  /// unique.
   void
   insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept override;
 
@@ -66,10 +74,13 @@ struct timed_sequence : public base_sequence {
   /// @param _tolerance the transform tolerance.
   /// @throw std::runtime_error if no data can be retrieved.
   [[nodiscard]] const Eigen::Isometry3d&
-  closest(const time_t& _time, const ros::Duration& _tolerance) override;
+  closest(const time_t& _time, const duration_t& _tolerance) override;
 
 private:
-  std::chrono::milliseconds dur_;  ///< the duration how long to keep the data
+  duration_t dur_;  ///< the duration how long to keep the data
+  // remarks: the benchmarking (see perf/perf_timed_sequence.cpp) showed that
+  // the std::map performs better than boost::container::flat_map for our
+  // usecase.
   using impl_t = std::map<time_t, Eigen::Isometry3d>;
   impl_t map_;  ///< impl holding the data
 };
@@ -90,6 +101,7 @@ struct transform_tree {
   void
   add(const geometry_msgs::TransformStamped& _tf, bool _static);
 
+  /// @brief retrieves the tr
   geometry_msgs::TransformStamped
   get(const std::string& _target, const std::string& _source,
       const ros::Time& _time, const ros::Duration& _tolerance);
@@ -110,8 +122,8 @@ private:
 
     std::string frame_id;    ///< the name of the leaf
     unsigned int depth = 0;  ///< the current depth (increasing from root)
-    const _leaf* parent = nullptr;  ///< link to the parent
-    data_t data;                    ///< the actual data
+    const _leaf* parent = nullptr;  ///< link to the parent; we don't own it
+    data_t data;                    ///< the actual data; we own it
   };
 
   // this is the owning part of the memory.
