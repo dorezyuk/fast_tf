@@ -9,7 +9,8 @@
 #include <Eigen/Geometry>
 
 // std-lib
-#include <boost/container/flat_map.hpp>
+#include <chrono>
+#include <map>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -26,13 +27,15 @@ struct base_sequence {
   virtual ~base_sequence() = default;
   base_sequence() = default;
 
+  using time_t = std::chrono::time_point<std::chrono::system_clock>;
+
   /// @brief stores _data interally.
   virtual void
-  insert(const ros::Time& _time, const Eigen::Isometry3d& _data) noexcept;
+  insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept;
 
   /// @brief returns the stored data.
   [[nodiscard]] virtual const Eigen::Isometry3d&
-  closest(const ros::Time& _time, const ros::Duration& _tolerance);
+  closest(const time_t& _time, const ros::Duration& _tolerance);
 
 protected:
   Eigen::Isometry3d data_;
@@ -56,19 +59,18 @@ struct timed_sequence : public base_sequence {
   /// - dur_. note: if the time-stamp is not unique, the newer data will
   /// overwrite the older one.
   void
-  insert(const ros::Time& _time,
-         const Eigen::Isometry3d& _data) noexcept override;
+  insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept override;
 
   /// @brief returns the closest element to the query time.
   /// @param _time the query time.
   /// @param _tolerance the transform tolerance.
   /// @throw std::runtime_error if no data can be retrieved.
   [[nodiscard]] const Eigen::Isometry3d&
-  closest(const ros::Time& _time, const ros::Duration& _tolerance) override;
+  closest(const time_t& _time, const ros::Duration& _tolerance) override;
 
 private:
-  ros::Duration dur_;  ///< the duration how long to keep the data
-  using impl_t = boost::container::flat_map<ros::Duration, Eigen::Isometry3d>;
+  std::chrono::milliseconds dur_;  ///< the duration how long to keep the data
+  using impl_t = std::map<time_t, Eigen::Isometry3d>;
   impl_t map_;  ///< impl holding the data
 };
 

@@ -12,34 +12,52 @@
 #include <stdexcept>
 #include <utility>
 
+// the __has_builtin is defined under gcc and under clang
+// see https://gcc.gnu.org/onlinedocs/cpp/_005f_005fhas_005fbuiltin.html
+// see https://clang.llvm.org/docs/LanguageExtensions.html
+// in c++20 we can use this without intrinsics:
+// see https://en.cppreference.com/w/cpp/language/attributes/likely
+#ifndef __has_builtin
+#define __has_builtin(x) 0
+#endif
+
+#if __has_builtin(__builtin_expect)
+#define likely(x) __builtin_expect((x), 1)
+#define unlikely(x) __builtin_expect((x), 0)
+#else
+// if we don't have the feature then there is no better prediction
+#define likely(x) x
+#define unlikely(x) x
+#endif
+
 namespace fast_tf {
 namespace detail {
 
 void
-base_sequence::insert([[gnu::unused]] const ros::Time& _time,
+base_sequence::insert([[gnu::unused]] const time_t& _time,
                       const Eigen::Isometry3d& _data) noexcept {
   data_ = _data;
 }
 
 const Eigen::Isometry3d&
-base_sequence::closest([[gnu::unused]] const ros::Time& _time,
+base_sequence::closest([[gnu::unused]] const time_t& _time,
                        [[gnu::unused]] const ros::Duration& _tolerance) {
   return data_;
 }
 
-timed_sequence::timed_sequence() noexcept : dur_(0.5) {}
+timed_sequence::timed_sequence() noexcept : dur_(500) {}
 timed_sequence::timed_sequence(const ros::Duration& _dur) noexcept :
-    dur_(_dur) {
+    dur_((int)(_dur.toSec() * 1000)) {
   assert(dur_ >= ros::Duration(0) && "duration must be positive");
 }
 
 void
-timed_sequence::insert(const ros::Time& _time,
+timed_sequence::insert(const time_t& _time,
                        const Eigen::Isometry3d& _data) noexcept {
   auto res = map_.emplace(_time, _data);
   // we replace it with the old data with the newly passed data in case we
   // already have a transform for the given time-stamp.
-  if (!res.second) {
+  if (unlikely(!res.second)) {
     ROS_DEBUG("overwriting old data");
     res.first->second = _data;
   }
@@ -76,8 +94,7 @@ lerp(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r,
 }
 
 const Eigen::Isometry3d&
-timed_sequence::closest(const ros::Time& _time,
-                        const ros::Duration& _tolerance) {
+timed_sequence::closest(const time_t& _time, const ros::Duration& _tolerance) {
   // no need to search if the map is empty..
   if (map_.empty())
     throw std::runtime_error("empty map");
@@ -90,8 +107,8 @@ timed_sequence::closest(const ros::Time& _time,
     assert(lb != map_.end() && "lower_bound cannot be map::end");
 
     // check if we respect the upper bound of the given interval.
-    if (lb->first > _time + _tolerance)
-      throw std::runtime_error("no data: extrapolation in the future");
+    // if (lb->first > _time + _tolerance)
+    //   throw std::runtime_error("no data: extrapolation in the future");
 
     return lb->second;
   }
@@ -100,18 +117,18 @@ timed_sequence::closest(const ros::Time& _time,
     auto lower = std::prev(lb);
 
     // check if we respect the lower bound of the given interval.
-    if (lower->first < _time - _tolerance)
-      throw std::runtime_error("no data: extrapolation in the past");
+    // if (lower->first < _time - _tolerance)
+    //   throw std::runtime_error("no data: extrapolation in the past");
 
     return lower->second;
   }
   else {
     // get the prev iterator
     const auto lower = std::prev(lb);
-    const auto ratio =
-        (_time - lower->first).toSec() / (lb->first - lower->first).toSec();
+    // const auto ratio =
+    //     (_time - lower->first).toSec() / (lb->first - lower->first).toSec();
 
-    data_ = lerp(lower->second, lb->second, ratio);
+    // data_ = lerp(lower->second, lb->second, ratio);
     return data_;
   }
 }
@@ -169,8 +186,8 @@ transform_tree::add(const geometry_msgs::TransformStamped& _tf, bool _static) {
       throw std::runtime_error("child cannot have multiple parents");
   }
 
-  child->second.data->insert(ros::Time(_tf.header.stamp),
-                             tf2::transformToEigen(_tf));
+  // child->second.data->insert(ros::Time(_tf.header.stamp),
+  //                            tf2::transformToEigen(_tf));
 }
 
 geometry_msgs::TransformStamped
@@ -201,7 +218,7 @@ transform_tree::get(const std::string& _target, const std::string& _source,
   while (target->depth < source->depth) {
     // get the transformation of the source branch for the current depth and
     // advance to the next stage.
-    source_root = source_root * source->data->closest(_time, _tolerance);
+    // source_root = source_root * source->data->closest(_time, _tolerance);
     source = source->parent;
     assert(source && "tree holds a nullptr");
   }
@@ -211,10 +228,10 @@ transform_tree::get(const std::string& _target, const std::string& _source,
 
   // now walk up with both
   while (target->parent != source->parent) {
-    source_root = source_root * source->data->closest(_time, _tolerance);
+    // source_root = source_root * source->data->closest(_time, _tolerance);
     source = source->parent;
 
-    target_root = target_root * target->data->closest(_time, _tolerance);
+    // target_root = target_root * target->data->closest(_time, _tolerance);
     target = target->parent;
 
     assert(source && "tree holds a nullptr");

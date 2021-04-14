@@ -35,13 +35,13 @@ struct timed_sequence_fixture : public parameter_fixture {
 };
 
 BENCHMARK_DEFINE_F(tf_fixture, write)(State& _state) {
+  tf2::TimeCache cache(ros::Duration(1));
+  data.stamp_ = ros::Time::now();
+  const ros::Duration increment(1. / steps);
   for (auto _ : _state) {
-    // setup the structure
-    tf2::TimeCache cache(ros::Duration(0.1));
-
     // write the data into the cache
     for (size_t ii = 0; ii != steps; ++ii) {
-      data.stamp_ = ros::Time::now();
+      data.stamp_ += increment;
       if (!cache.insertData(data, &err))
         std::cout << "failed to insert: " << err << std::endl;
     }
@@ -49,13 +49,15 @@ BENCHMARK_DEFINE_F(tf_fixture, write)(State& _state) {
 }
 
 BENCHMARK_DEFINE_F(timed_sequence_fixture, write)(State& _state) {
+  timed_sequence cache(ros::Duration(1));
+  auto now = std::chrono::system_clock::now();
+  const std::chrono::milliseconds increment(1000 / steps);
   for (auto _ : _state) {
-    // setup the structure
-    timed_sequence cache(ros::Duration(0.1));
-
     // write the data into the cache
-    for (size_t ii = 0; ii != steps; ++ii)
-      cache.insert(ros::Time::now(), data);
+    for (size_t ii = 0; ii != steps; ++ii) {
+      now += increment;
+      cache.insert(now, data);
+    }
   }
 }
 
@@ -65,20 +67,21 @@ BENCHMARK_REGISTER_F(tf_fixture, write)->Range(10, 1000);
 BENCHMARK_REGISTER_F(timed_sequence_fixture, write)->Range(10, 1000);
 
 BENCHMARK_DEFINE_F(tf_fixture, random_write)(State& _state) {
+  tf2::TimeCache cache(ros::Duration(1));
+  data.stamp_ = ros::Time::now();
+  const ros::Duration increment(0.5 + 1. / steps);
+  const ros::Duration decrement(0.5 + 1.11 / steps / 2);
+
+  bool plus = true;
+
   for (auto _ : _state) {
-    // setup the structure
-    tf2::TimeCache cache(ros::Duration(0.1));
-
-    // simulate noisy data (adding information in between)
-    const ros::Time now(ros::Time::now());
-    ros::Duration dur;
-    dur.nsec = steps;
-    bool plus = true;
-
     // write the data into the cache
-    for (size_t ii = 0; ii != steps; ++ii, --dur.nsec) {
+    for (size_t ii = 0; ii != steps; ++ii) {
       // alter the time-stamp
-      data.stamp_ = plus ? now + dur : now - dur;
+      if (plus)
+        data.stamp_ += increment;
+      else
+        data.stamp_ -= decrement;
       plus = !plus;
 
       if (!cache.insertData(data, &err))
@@ -88,25 +91,28 @@ BENCHMARK_DEFINE_F(tf_fixture, random_write)(State& _state) {
 }
 
 BENCHMARK_DEFINE_F(timed_sequence_fixture, random_write)(State& _state) {
+  timed_sequence cache(ros::Duration(1));
+
+  auto now = std::chrono::system_clock::now();
+  const std::chrono::nanoseconds increment(size_t(1e9) / steps + size_t(5e8));
+  const std::chrono::nanoseconds decrement(size_t(1e9 * 1.11) / steps / 2 +
+                                           size_t(5e8));
+  bool plus = true;
+
   for (auto _ : _state) {
-    // setup the structure
-    timed_sequence cache(ros::Duration(0.1));
-
-    // simulate noisy data (adding information in between)
-    const ros::Time now(ros::Time::now());
-    ros::Duration dur;
-    dur.nsec = steps;
-    bool plus = true;
-
     // write the data into the cache
-    for (size_t ii = 0; ii != steps; ++ii, --dur.nsec) {
+    for (size_t ii = 0; ii != steps; ++ii) {
       // alter the time-stamp
-      ros::Time stamp = plus ? now + dur : now - dur;
+      if (plus)
+        now += increment;
+      else
+        now -= decrement;
       plus = !plus;
 
-      cache.insert(stamp, data);
+      cache.insert(now, data);
     }
   }
+  // std::cout << cache.size() << std::endl;
 }
 
 // benchmark checks the performance for out-of-order writing without pruning for
@@ -143,12 +149,12 @@ BENCHMARK_DEFINE_F(tf_fixture, prune_all)(State& _state) {
 BENCHMARK_DEFINE_F(timed_sequence_fixture, prune_all)(State& _state) {
   timed_sequence cache(ros::Duration(0.1));
   ros::Duration dur;
-  const ros::Time now(ros::Time::now() - ros::Duration(0.1));
+  const auto now =
+      std::chrono::system_clock::now() - std::chrono::milliseconds(100);
 
   // generate some data
   for (size_t ii = 0; ii != steps; ++ii) {
-    dur.nsec = ii;
-    cache.insert(now + dur, data);
+    cache.insert(now + std::chrono::nanoseconds(ii), data);
   }
 
   for (auto _ : _state) {
@@ -156,7 +162,9 @@ BENCHMARK_DEFINE_F(timed_sequence_fixture, prune_all)(State& _state) {
     _state.PauseTiming();
     timed_sequence curr_cache = cache;
     _state.ResumeTiming();
-    curr_cache.insert(ros::Time::now() + ros::Duration(0.1), data);
+    curr_cache.insert(
+        std::chrono::system_clock::now() - std::chrono::milliseconds(100),
+        data);
   }
 }
 
