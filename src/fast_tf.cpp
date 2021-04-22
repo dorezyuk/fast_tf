@@ -55,13 +55,10 @@ timed_sequence::timed_sequence(const duration_t& _dur) noexcept : dur_(_dur) {
 void
 timed_sequence::insert(const time_t& _time,
                        const Eigen::Isometry3d& _data) noexcept {
-  auto res = map_.emplace(_time, _data);
-  // we replace it with the old data with the newly passed data in case we
-  // already have a transform for the given time-stamp.
-  if (unlikely(!res.second)) {
-    ROS_DEBUG("overwriting old data");
-    res.first->second = _data;
-  }
+  // mostlikely the data will come in in order and emplace_hint will not change
+  // the entry if its already present.
+  map_.emplace_hint(map_.end(), _time, _data);
+
   // rebalance
   auto lb = map_.lower_bound(std::prev(map_.end())->first - dur_);
   map_.erase(map_.begin(), lb);

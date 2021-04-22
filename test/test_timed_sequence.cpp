@@ -49,7 +49,7 @@ TEST_F(timed_sequence_fixture, basic) {
   ASSERT_ANY_THROW(ts.closest(now - 2s, 1s));
 }
 
-TEST_F(timed_sequence_fixture, overwrite) {
+TEST_F(timed_sequence_fixture, no_overwrite) {
   // test verifies the overwrite mechanics: for the same time-stamp the newer
   // added data overwrites the older data.
   const timed_sequence::time_t now(timed_sequence::clock_t::now());
@@ -60,7 +60,7 @@ TEST_F(timed_sequence_fixture, overwrite) {
 
   // update the data and check again
   ts.insert(now, data2);
-  ASSERT_EQ(ts.closest(now, 0s).matrix(), data2.matrix());
+  ASSERT_EQ(ts.closest(now, 0s).matrix(), data1.matrix());
 }
 
 TEST_F(timed_sequence_fixture, end_points) {

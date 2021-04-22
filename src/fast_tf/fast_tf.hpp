@@ -42,7 +42,8 @@ struct base_sequence {
   insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept;
 
   /// @brief returns the stored data.
-  [[nodiscard]] virtual const Eigen::Isometry3d&
+  // todo do we really need the tolerance? check with the original
+  virtual const Eigen::Isometry3d&
   closest(const time_t& _time, const duration_t& _tolerance);
 
 protected:
@@ -52,7 +53,8 @@ protected:
 /// @brief sequence of timed data.
 ///
 /// extends of the base_sequence such that it can store a sequence of timed
-/// transform. corresponds to the tf2::TimedCache implementation.
+/// transform. corresponds to the tf2::TimedCache implementation. add new data
+/// with timed_sequence::insert and retrive it with timed_sequence::closest.
 struct timed_sequence : public base_sequence {
   /// @brief c'tor with the storage duration
   /// @param _dur positive duration
@@ -64,7 +66,7 @@ struct timed_sequence : public base_sequence {
   /// @param _data the new data to add
   ///
   /// function will prune data older then the newest data - storage duration.
-  /// the passed _data will replace the old data if the passed _time is not
+  /// the passed _data will not replace the old data if the passed _time is not
   /// unique.
   void
   insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept override;
@@ -73,7 +75,7 @@ struct timed_sequence : public base_sequence {
   /// @param _time the query time.
   /// @param _tolerance the transform tolerance.
   /// @throw std::runtime_error if no data can be retrieved.
-  [[nodiscard]] const Eigen::Isometry3d&
+  const Eigen::Isometry3d&
   closest(const time_t& _time, const duration_t& _tolerance) override;
 
 private:
@@ -86,7 +88,7 @@ private:
 };
 
 /// @brief structure holding the transform-tree data. the tree is connected and
-/// cycle-free (checked add insertion)
+/// cycle-free (checked at insertion)
 struct transform_tree {
   /// @brief will add a new transformation to the tree.
   ///
@@ -106,6 +108,9 @@ struct transform_tree {
   get(const std::string& _target, const std::string& _source,
       const ros::Time& _time, const ros::Duration& _tolerance);
 
+  // todo test me
+  // todo add merge
+  // todo add way for possibly connecting the trees
 private:
   /// @brief leaf of the tree.
   ///

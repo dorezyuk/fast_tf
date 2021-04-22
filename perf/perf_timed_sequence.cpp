@@ -3,11 +3,14 @@
 
 // ros-includes
 #include <ros/time.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+// the time_cache has a redundant ";" - we ignore this warning
 #include <tf2/time_cache.h>
+#pragma GCC diagnostic pop
 #include <tf2/transform_storage.h>
 
 #include <chrono>
-#include <thread>
 
 using namespace std::chrono_literals;
 using benchmark::Fixture;
