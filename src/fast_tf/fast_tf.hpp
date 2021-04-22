@@ -17,75 +17,87 @@ class Time;
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <variant>
 
 namespace fast_tf {
 namespace detail {
 
-/// @brief base-sequence for static data
+// below the definition of two transform types: static and dynamic. static
+// transforms are time-independent; dynamic transforms store a sequence of
+// transforms. both classes correspont to the tf2::StaticCache and
+// tf2::TimedCache, rectively.
+
+/// @brief Storage for a static transform.
 ///
-/// implementation is similar to tf2::StaticCache. class stores a single
-/// Eigen::Isometry3d transform. the transform can be set with
-/// base_sequence::insert and retrieved with base_sequence::closest
-struct base_sequence {
-  virtual ~base_sequence() = default;
-  base_sequence() = default;
+/// Class stores a single transform. The class is not thread-safe, to the
+/// locking must be done outside.
+struct static_transform {
+  static_transform() = default;
+  explicit static_transform(const Eigen::Isometry3d& _data) noexcept;
 
-  // replacing the ros::Time with std::chrono::time_point yields in ~100%
-  // speedup (!) of the timed_sequence::insert function.
-  using clock_t = std::chrono::system_clock;
-  using time_t = std::chrono::time_point<clock_t>;
-  using duration_t = std::chrono::nanoseconds;
+  /// @brief Updates the stored transform.
+  /// @param _data The data to be stored.
+  void
+  set(const Eigen::Isometry3d& _data) noexcept;
 
-  /// @brief stores _data interally.
-  virtual void
-  insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept;
-
-  /// @brief returns the stored data.
-  // todo do we really need the tolerance? check with the original
-  virtual const Eigen::Isometry3d&
-  closest(const time_t& _time, const duration_t& _tolerance);
+  /// @brief Returns the stored transform.
+  /// @return The currently stored transform.
+  const Eigen::Isometry3d&
+  get() const noexcept;
 
 protected:
-  Eigen::Isometry3d data_;
+  Eigen::Isometry3d data_;  ///< the data...
 };
 
-/// @brief sequence of timed data.
+// replacing the ros::Time with std::chrono::time_point yields in ~100%
+// speedup (!) of the dynamic_transform::set function.
+// todo clock_t collides with other definitions
+using clock_t = std::chrono::system_clock;
+using time_t = std::chrono::time_point<clock_t>;
+using duration_t = std::chrono::nanoseconds;
+
+/// @brief Storage for a sequence of dynamic transforms.
 ///
-/// extends of the base_sequence such that it can store a sequence of timed
-/// transform. corresponds to the tf2::TimedCache implementation. add new data
-/// with timed_sequence::insert and retrive it with timed_sequence::closest.
-struct timed_sequence : public base_sequence {
+/// Class stores a timed sequence of a dynamically changing transforms. The
+/// implementation matches the implementation of the tf2::TimedCache. Similar to
+/// its static counterpart, the class is not thread-safe.
+struct dynamic_transform {
   /// @brief c'tor with the storage duration
   /// @param _dur positive duration
-  explicit timed_sequence(const duration_t& _dur) noexcept;
-  timed_sequence() noexcept;
+  explicit dynamic_transform(const duration_t& _dur) noexcept;
+  dynamic_transform() noexcept;
 
-  /// @brief inserts new data and prunes stale data
-  /// @param _time the time-stamp of the data
-  /// @param _data the new data to add
+  /// @brief Inserts new data and prunes stale data.
+  /// @param _time The time-stamp of the data.
+  /// @param _data The new data to add.
   ///
-  /// function will prune data older then the newest data - storage duration.
-  /// the passed _data will not replace the old data if the passed _time is not
-  /// unique.
+  /// Function will prune data older then the newest data - storage duration.
+  /// The passed _data does not replace the old data if.
   void
-  insert(const time_t& _time, const Eigen::Isometry3d& _data) noexcept override;
+  set(const time_t& _time, const Eigen::Isometry3d& _data) noexcept;
 
-  /// @brief returns the closest element to the query time.
-  /// @param _time the query time.
-  /// @param _tolerance the transform tolerance.
+  /// @brief Returns the closest element to the query time.
+  /// @param _time The query time.
   /// @throw std::runtime_error if no data can be retrieved.
-  const Eigen::Isometry3d&
-  closest(const time_t& _time, const duration_t& _tolerance) override;
+  Eigen::Isometry3d
+  get(const time_t& _time) const;
 
 private:
   duration_t dur_;  ///< the duration how long to keep the data
-  // remarks: the benchmarking (see perf/perf_timed_sequence.cpp) showed that
+
+  // remarks: the benchmarking (see perf/perf_dynamic_transform.cpp) showed that
   // the std::map performs better than boost::container::flat_map for our
   // usecase.
   using impl_t = std::map<time_t, Eigen::Isometry3d>;
   impl_t map_;  ///< impl holding the data
 };
+
+// in our case the variant way of polymorphism is more performant than the old
+// school virtual method. additionally we can give both classes distinct
+// interfaces.
+using variable_transform = std::variant<static_transform, dynamic_transform>;
 
 /// @brief structure holding the transform-tree data. the tree is connected and
 /// cycle-free (checked at insertion)
@@ -118,17 +130,15 @@ private:
   /// parent but might have multiple leaves. the data to parent is owned
   /// outside.
   struct _leaf {
-    // we will use some polymorphism
-    using data_t = std::unique_ptr<base_sequence>;
-
     // constructors which will set depth and parent automatically
-    _leaf(const std::string& _name, data_t&& _data) noexcept;
-    _leaf(const std::string&, const _leaf& _parent, data_t&& _data) noexcept;
+    _leaf(const std::string& _name, variable_transform&& _data) noexcept;
+    _leaf(const std::string&, const _leaf& _parent,
+          variable_transform&& _data) noexcept;
 
     std::string frame_id;    ///< the name of the leaf
     unsigned int depth = 0;  ///< the current depth (increasing from root)
     const _leaf* parent = nullptr;  ///< link to the parent; we don't own it
-    data_t data;                    ///< the actual data; we own it
+    variable_transform data;        ///< the actual data; we own it
   };
 
   // this is the owning part of the memory.

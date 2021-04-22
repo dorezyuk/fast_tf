@@ -33,32 +33,37 @@
 namespace fast_tf {
 namespace detail {
 
-void
-base_sequence::insert([[gnu::unused]] const time_t& _time,
-                      const Eigen::Isometry3d& _data) noexcept {
+static_transform::static_transform(const Eigen::Isometry3d& _data) noexcept :
+    data_(_data) {}
+
+inline void
+static_transform::set(const Eigen::Isometry3d& _data) noexcept {
   data_ = _data;
 }
 
-const Eigen::Isometry3d&
-base_sequence::closest([[gnu::unused]] const time_t& _time,
-                       [[gnu::unused]] const duration_t& _tolerance) {
+inline const Eigen::Isometry3d&
+static_transform::get() const noexcept {
   return data_;
 }
 
-timed_sequence::timed_sequence() noexcept :
+dynamic_transform::dynamic_transform() noexcept :
     dur_(std::chrono::duration_cast<duration_t>(
         std::chrono::milliseconds(500))) {}
-timed_sequence::timed_sequence(const duration_t& _dur) noexcept : dur_(_dur) {
+
+dynamic_transform::dynamic_transform(const duration_t& _dur) noexcept :
+    dur_(_dur) {
   assert(dur_ >= duration_t(0) && "duration must be positive");
 }
 
 void
-timed_sequence::insert(const time_t& _time,
+dynamic_transform::set(const time_t& _time,
                        const Eigen::Isometry3d& _data) noexcept {
   // mostlikely the data will come in in order and emplace_hint will not change
   // the entry if its already present.
   map_.emplace_hint(map_.end(), _time, _data);
 
+  // check that the map is not empty - we need to acces the last valid element
+  assert(!map_.empty() && "map cannot be empty");
   // rebalance
   auto lb = map_.lower_bound(std::prev(map_.end())->first - dur_);
   map_.erase(map_.begin(), lb);
@@ -89,80 +94,79 @@ lerp(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r,
           ql.slerp(_t, qr)};
 }
 
-const Eigen::Isometry3d&
-timed_sequence::closest(const time_t& _time, const duration_t& _tolerance) {
-  // no need to search if the map is empty..
-  if (map_.empty())
-    throw std::runtime_error("empty map");
-
+Eigen::Isometry3d
+dynamic_transform::get(const time_t& _time) const {
   // get the first element not smaller then _time
   const auto lb = map_.lower_bound(_time);
 
-  if (lb == map_.begin()) {
-    // lb cannot be end, since the map_ is not empty
-    assert(lb != map_.end() && "lower_bound cannot be map::end");
+  // we will end up in this case if the map_ is either empty or if the stored
+  // data is too old
+  if (lb == map_.end())
+    throw std::runtime_error("no matching data");
 
-    // check if we respect the upper bound of the given interval.
-    if (lb->first > _time + _tolerance)
-      throw std::runtime_error("no data: extrapolation in the future");
-
+  // if the time stamps match exactly, we don't need to interpolate
+  if (lb->first == _time)
     return lb->second;
-  }
-  else if (lb == map_.end()) {
-    // we must have a valid prev, since the map_ is not empty.
-    auto lower = std::prev(lb);
-
-    // check if we respect the lower bound of the given interval.
-    if (lower->first < _time - _tolerance)
-      throw std::runtime_error("no data: extrapolation in the past");
-
-    return lower->second;
-  }
   else {
+    // check if we have two points to interpolate
+    if (lb == map_.begin())
+      throw std::runtime_error("no matching data: extrapolation in the past");
     // get the prev iterator
     const auto lower = std::prev(lb);
-    // note the count returns a signed integer. the default duration is
-    // nanoseconds. the nanoseconds must cover +/- 292 yeards. see
+    // our count() returns a signed integer. the default duration is
+    // nanoseconds. the nanoseconds must cover +/- 292 years. see
     // https://en.cppreference.com/w/cpp/chrono/duration
     const auto ratio = static_cast<double>((_time - lower->first).count()) /
                        (lb->first - lower->first).count();
 
-    data_ = lerp(lower->second, lb->second, ratio);
-    return data_;
+    return lerp(lower->second, lb->second, ratio);
   }
 }
 
 transform_tree::_leaf::_leaf(const std::string& _frame_id,
-                             data_t&& _data) noexcept :
+                             variable_transform&& _data) noexcept :
     frame_id(_frame_id), data(std::move(_data)) {}
 
 transform_tree::_leaf::_leaf(const std::string& _frame_id, const _leaf& _parent,
-                             data_t&& _data) noexcept :
+                             variable_transform&& _data) noexcept :
     frame_id(_frame_id),
     depth(_parent.depth + 1),
     parent(&_parent),
     data(std::move(_data)) {}
 
-/// @brief factory returning either base_sequence or timed_sequence instances.
-static std::unique_ptr<base_sequence>
+/// @brief factory returning either base_sequence or dynamic_transform
+/// instances.
+static variable_transform
 sequence_factory(bool _static) noexcept {
-  return _static ? std::make_unique<base_sequence>()
-                 : std::make_unique<timed_sequence>();
+  if (_static)
+    return static_transform{};
+  else
+    return dynamic_transform{};
 }
 
 /// @brief conversion from ros::Time to std::chrono.
-static base_sequence::time_t
+static time_t
 to_time(const ros::Time& _time) {
   using namespace std::chrono;
-  return base_sequence::time_t(seconds(_time.sec)) + nanoseconds(_time.nsec);
+  return time_t(seconds(_time.sec)) + nanoseconds(_time.nsec);
 }
 
 /// @brief conversion from ros::Duration to std::chrono.
-static base_sequence::duration_t
+static duration_t
 to_duration(const ros::Duration& _dur) {
   using namespace std::chrono;
-  return duration_cast<base_sequence::duration_t>(seconds(_dur.sec)) +
-         duration_cast<base_sequence::duration_t>(nanoseconds(_dur.nsec));
+  return duration_cast<duration_t>(seconds(_dur.sec)) +
+         duration_cast<duration_t>(nanoseconds(_dur.nsec));
+}
+
+/// @brief applies the transform stored in _l on _r.
+static Eigen::Isometry3d
+chain_transform(const variable_transform& _l, const Eigen::Isometry3d& _r,
+                const time_t& _time) noexcept {
+  if (std::holds_alternative<static_transform>(_l))
+    return std::get<static_transform>(_l).get() * _r;
+  else
+    return std::get<dynamic_transform>(_l).get(_time) * _r;
 }
 
 void
@@ -201,8 +205,11 @@ transform_tree::add(const geometry_msgs::TransformStamped& _tf, bool _static) {
       throw std::runtime_error("child cannot have multiple parents");
   }
 
-  child->second.data->insert(to_time(_tf.header.stamp),
-                             tf2::transformToEigen(_tf));
+  if (_static)
+    std::get<0>(child->second.data).set(tf2::transformToEigen(_tf));
+  else
+    std::get<1>(child->second.data)
+        .set(to_time(_tf.header.stamp), tf2::transformToEigen(_tf));
 }
 
 geometry_msgs::TransformStamped
@@ -229,15 +236,15 @@ transform_tree::get(const std::string& _target, const std::string& _source,
     std::swap(source, target);
 
   // walk up the tree until we have reached the same depth for both
-  Eigen::Isometry3d source_root, target_root;
+  Eigen::Isometry3d source_root(Eigen::Isometry3d::Identity());
+  Eigen::Isometry3d target_root(Eigen::Isometry3d::Identity());
   // convert to std::chrono
-  const base_sequence::time_t time(to_time(_time));
-  const base_sequence::duration_t tolerance(to_duration(_tolerance));
+  const time_t time(to_time(_time));
 
   while (target->depth < source->depth) {
     // get the transformation of the source branch for the current depth and
     // advance to the next stage.
-    source_root = source_root * source->data->closest(time, tolerance);
+    source_root = chain_transform(source->data, source_root, time);
     source = source->parent;
     assert(source && "tree holds a nullptr");
   }
@@ -247,10 +254,10 @@ transform_tree::get(const std::string& _target, const std::string& _source,
 
   // now walk up with both
   while (target->parent != source->parent) {
-    source_root = source_root * source->data->closest(time, tolerance);
+    source_root = chain_transform(source->data, source_root, time);
     source = source->parent;
 
-    target_root = target_root * target->data->closest(time, tolerance);
+    target_root = chain_transform(target->data, target_root, time);
     target = target->parent;
 
     assert(source && "tree holds a nullptr");

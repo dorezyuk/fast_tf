@@ -15,7 +15,7 @@
 using namespace std::chrono_literals;
 using benchmark::Fixture;
 using benchmark::State;
-using fast_tf::detail::timed_sequence;
+using fast_tf::detail::dynamic_transform;
 
 /// @brief base fixture for loading the parameric iterations
 struct parameter_fixture : public Fixture {
@@ -34,7 +34,7 @@ struct tf_fixture : public parameter_fixture {
 };
 
 /// @brief fixture for running benchmarks on the proposed implementation
-struct timed_sequence_fixture : public parameter_fixture {
+struct dynamic_transform_fixture : public parameter_fixture {
   Eigen::Isometry3d data;
 };
 
@@ -52,15 +52,15 @@ BENCHMARK_DEFINE_F(tf_fixture, write)(State& _state) {
   }
 }
 
-BENCHMARK_DEFINE_F(timed_sequence_fixture, write)(State& _state) {
-  timed_sequence cache(1s);
+BENCHMARK_DEFINE_F(dynamic_transform_fixture, write)(State& _state) {
+  dynamic_transform cache(1s);
   auto now = std::chrono::system_clock::now();
   const std::chrono::milliseconds increment(1000 / steps);
 
   for (auto _ : _state) {
     for (size_t ii = 0; ii != steps; ++ii) {
       now += increment;
-      cache.insert(now, data);
+      cache.set(now, data);
     }
   }
 }
@@ -70,7 +70,7 @@ BENCHMARK_DEFINE_F(timed_sequence_fixture, write)(State& _state) {
 // fifo queue, where we only insert data at one end and pop from the other.
 // the parameter determines the size of the queue.
 BENCHMARK_REGISTER_F(tf_fixture, write)->Range(10, 1000);
-BENCHMARK_REGISTER_F(timed_sequence_fixture, write)->Range(10, 1000);
+BENCHMARK_REGISTER_F(dynamic_transform_fixture, write)->Range(10, 1000);
 
 BENCHMARK_DEFINE_F(tf_fixture, random_write)(State& _state) {
   tf2::TimeCache cache(ros::Duration(1));
@@ -95,8 +95,8 @@ BENCHMARK_DEFINE_F(tf_fixture, random_write)(State& _state) {
   }
 }
 
-BENCHMARK_DEFINE_F(timed_sequence_fixture, random_write)(State& _state) {
-  timed_sequence cache(1s);
+BENCHMARK_DEFINE_F(dynamic_transform_fixture, random_write)(State& _state) {
+  dynamic_transform cache(1s);
   auto now = std::chrono::system_clock::now();
   const std::chrono::nanoseconds increment(size_t(1e9) / steps + size_t(5e8));
   const std::chrono::nanoseconds decrement(size_t(1e9 * 1.11) / steps / 2 +
@@ -112,7 +112,7 @@ BENCHMARK_DEFINE_F(timed_sequence_fixture, random_write)(State& _state) {
         now -= decrement;
       plus = !plus;
 
-      cache.insert(now, data);
+      cache.set(now, data);
     }
   }
 }
@@ -122,7 +122,7 @@ BENCHMARK_DEFINE_F(timed_sequence_fixture, random_write)(State& _state) {
 // inserting new data we alternate between inserting the data in the middle and
 // at the end. the parameter determines the size of the queue.
 BENCHMARK_REGISTER_F(tf_fixture, random_write)->Range(10, 1000);
-BENCHMARK_REGISTER_F(timed_sequence_fixture, random_write)->Range(10, 1000);
+BENCHMARK_REGISTER_F(dynamic_transform_fixture, random_write)->Range(10, 1000);
 
 int
 main(int argc, char** argv) {

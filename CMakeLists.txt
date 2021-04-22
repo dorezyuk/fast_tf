@@ -34,7 +34,7 @@ target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
 find_program(iwyu_path NAMES include-what-you-use iwyu)
 if(iwyu_path)
   message("running with include-what-you-get")
-  set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
+  # set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
 endif()
 
 #############
@@ -86,7 +86,7 @@ endif()
 if(CATKIN_ENABLE_TESTING)
   find_package(rostest REQUIRED)
   catkin_add_gtest(${PROJECT_NAME}_gtest
-    test/test_timed_sequence.cpp
+    test/test_dynamic_transform.cpp
     test/test_transform_tree.cpp)
   target_link_libraries(${PROJECT_NAME}_gtest ${PROJECT_NAME} gtest_main)
 endif()
@@ -95,11 +95,11 @@ endif()
 ## Benchmark ##
 ###############
 
-set(${PROJECT_NAME}_BENCHMARK "Enable benchmarking" ON)
+set(${PROJECT_NAME}_BENCHMARK "Enable benchmarking" OFF)
 if(${PROJECT_NAME}_BENCHMARK)
   find_package(benchmark)
   if(benchmark_FOUND)
-    add_executable(${PROJECT_NAME}_perf perf/perf_timed_sequence.cpp)
+    add_executable(${PROJECT_NAME}_perf perf/perf_dynamic_transform.cpp)
     target_link_libraries(${PROJECT_NAME}_perf benchmark::benchmark ${PROJECT_NAME})
   else()
     message("benchmark library not found")
