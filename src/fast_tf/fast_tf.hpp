@@ -33,19 +33,14 @@ namespace detail {
 
 /// @brief Storage for a static transform.
 ///
-/// Class stores a single transform. The class is not thread-safe, to the
-/// locking must be done outside.
+/// Class stores a single transform (our version of tf2::StaticCache).
 struct static_transform {
   static_transform() = default;
   explicit static_transform(const Eigen::Isometry3d& _data) noexcept;
 
-  /// @brief Updates the stored transform.
-  /// @param _data The data to be stored.
   void
   set(const Eigen::Isometry3d& _data) noexcept;
 
-  /// @brief Returns the stored transform.
-  /// @return The currently stored transform.
   const Eigen::Isometry3d&
   get() const noexcept;
 
@@ -69,9 +64,11 @@ using duration_t = std::chrono::nanoseconds;
  * @code
  * // create an instance of the counter
  * counter c;
+ * assert(c && "counter is empty");
  *
  * // create a scoped counter. counter is now at 1
  * scoped_handle sc1{c};
+ * assert(!c && "counter is now incremented");
  *
  * {
  *  scoped_handle sc2{c}; // counter is now at 2
@@ -102,8 +99,7 @@ private:
 /// @brief Storage for a sequence of dynamic transforms.
 ///
 /// Class stores a timed sequence of a dynamically changing transforms. The
-/// implementation matches the implementation of the tf2::TimedCache. Similar to
-/// its static counterpart, the class is not thread-safe.
+/// implementation matches the implementation of the tf2::TimedCache.
 struct dynamic_transform : public counter {
   /// @brief c'tor with the storage duration
   /// @param _dur positive duration
@@ -129,47 +125,41 @@ private:
   duration_t dur_;  ///< the duration how long to keep the data
 
   // remarks: the benchmarking (see perf/perf_dynamic_transform.cpp) showed that
-  // the std::map performs better than boost::container::flat_map for our
-  // usecase.
+  // the std::map performs better than boost::container::flat_map or std::deque
+  // for our usecase.
   using impl_t = std::map<time_t, Eigen::Isometry3d>;
   impl_t map_;  ///< impl holding the data
 };
 
-// in our case the variant way of polymorphism is more performant than the old
-// school virtual method. additionally we can give both classes distinct
-// interfaces.
+// our transforms may be either static or dynamic.
 using variable_transform = std::variant<static_transform, dynamic_transform>;
 
-/// @brief Structure holding a transformation tree. The tree is a cycle-free
-/// connected chain, where every leaf has one parent (but the root), and an
-/// arbitrary number of children.
-struct _transform_tree {
-  /// @brief Structure holding the transform
-  ///
-  /// the structure implements a single-directed list where every node has one
-  /// parent but might have multiple leaves. the data to parent is owned
-  /// outside.
-  struct _leaf {
+/// @brief Structure holding a transformation tree.
+///
+/// The tree is a cycle-tree, connected graph, where every node has one parent
+/// (but the root), and an arbitrary number of children.
+struct transform_tree {
+  /// @brief Structure holding the transform.
+  struct node {
     // constructors which will set depth and parent automatically
-    _leaf(const std::string& _name, variable_transform&& _data) noexcept;
-    _leaf(const std::string&, const _leaf& _parent,
-          variable_transform&& _data) noexcept;
+    explicit node(variable_transform&& _data) noexcept;
+    node(variable_transform&& _data, const node& _parent) noexcept;
 
-    std::string frame_id;    ///< the name of the leaf
-    unsigned int depth = 0;  ///< the current depth (increasing from root)
-    const _leaf* parent = nullptr;  ///< link to the parent; we don't own it
-    variable_transform data;        ///< the actual data; we own it
+    unsigned int depth = 0;        ///< the current depth (increasing from root)
+    const node* parent = nullptr;  ///< link to the parent; we don't own it
+    variable_transform data;       ///< the actual data; we own it
   };
 
-  // the data structure
-  using impl_t = std::unordered_map<std::string, _leaf>;
+  // the data structure mapping frame-id to the node
+  using impl_t = std::unordered_map<std::string, node>;
 
   // the iterators
   using iterator = impl_t::iterator;
   using const_iterator = impl_t::const_iterator;
+  using pair_type = std::pair<iterator, bool>;
 
   // key-value types
-  using value_type = impl_t::value_type;  // _leaf
+  using value_type = impl_t::value_type;  // node
   using key_type = impl_t::key_type;      // std::string
 
   /// @brief Returns true, if the tree holds no data.
@@ -186,19 +176,26 @@ struct _transform_tree {
   /// link {X->A} to the tree {A->B->C} would then generate the tree
   /// {X->A->B->C}.
   ///
-  /// @return iterator to the new root node.
+  /// @return Pair of an iterator to the root node and boolean if the new node
+  /// has been created (same signature as std::unordered_map::emplace).
+  ///
   /// @throw std::runtime_error if new root node can't be inserted in the tree.
-  [[nodiscard]] iterator
-  init(const std::string& _parent_frame, const std::string& _child_frame);
+  [[nodiscard]] pair_type
+  emplace_parent(const std::string& _parent_frame,
+                 const std::string& _child_frame, bool _is_static);
 
   /// @brief Returns the iterator to the node identified by _child_frame.
   ///
   /// The function will create a new node, if the node does not exist. It may
-  /// also create a new root node, if the parent node does not exist (see init).
+  /// also create a new root node, if the parent node does not exist (see
+  /// emplace_parent).
+  ///
+  /// @return Pair of an iterator to the child node and a boolean if a new node
+  /// (child or parent) has been created.
   ///
   /// @throw std::runtime_error if a circle would be created, or if the tree
   /// would be disconnected.
-  [[nodiscard]] iterator
+  [[nodiscard]] pair_type
   emplace(const std::string& _parent_frame, const std::string& _child_frame,
           bool _is_static);
 
@@ -211,63 +208,58 @@ struct _transform_tree {
   ///
   /// @throw std::runtime_error if the trees cannot be merged.
   void
-  merge(_transform_tree& _other);
+  merge(transform_tree& _other);
 
   impl_t data_;
   impl_t::iterator root_ = data_.end();
 };
 
-/// @brief structure holding the transform-tree data. the tree is connected and
-/// cycle-free (checked at insertion)
-struct transform_tree : private _transform_tree {
-  /// @brief will add a new transformation to the tree.
-  ///
-  /// @param _tf the transform data
-  /// @param _static flag indicating if the timed aspect of the transform can be
-  /// omitted.
-  ///
-  /// @throw std::runtime_error if the tree would become unconnected: we must
-  /// either have an empty tree, or must know either the parent or the child.
-  /// the function also throws if the inserted link would result in a circular
-  /// graph.
-  void
-  add(const geometry_msgs::TransformStamped& _tf, bool _static);
+/// @brief Thread-safe structure allowing to store and query transforms.
+struct transform_buffer {
+  transform_buffer();
 
-  /// @brief retrieves the tr
+  void
+  set(const geometry_msgs::TransformStamped& _tf, bool _is_static);
+
   geometry_msgs::TransformStamped
   get(const std::string& _target, const std::string& _source,
       const ros::Time& _time, const ros::Duration& _tolerance);
 
-  bool
-  exists(const std::string& _frame) const noexcept {
-    return data_.find(_frame) != data_.end();
+protected:
+  // we may have multiple trees.
+  using trees_t = std::list<transform_tree>;
+
+  [[nodiscard]] bool
+  same_tree(trees_t::iterator _l, trees_t::iterator _r) const noexcept {
+    return _l != trees_.end() && _r != trees_.end() && _l == _r;
   }
 
-  // todo test me
-  // todo add merge
-  // todo add way for possibly connecting the trees
-private:
-  Eigen::Isometry3d
-  get_transform(const dynamic_transform& _dyn_tr, const time_t& _query_time,
-                const time_t& _end_time, std::unique_lock<std::mutex>& _lock);
+  [[nodiscard]] transform_tree::pair_type
+  emplace(const std::string& _parent_frame, const std::string& _child_frame,
+          bool _is_static);
 
-  Eigen::Isometry3d
-  get_transform(const variable_transform& _var_tr, const time_t& _query_time,
-                const time_t& _end_time, std::unique_lock<std::mutex>& _lock);
+  [[nodiscard]] std::pair<trees_t::iterator, transform_tree::iterator>
+  find(const std::string& _frame);
 
+  void
+  merge(const std::string& _parent_frame, const std::string& _child_frame);
+
+  bool
+  merge(const std::string& _common_frame);
+
+  // attribute will be ignored on non gcc compilers
+  Eigen::Isometry3d
+  get_transform(const time_t& _query_time, const time_t& _end_time,
+                const transform_tree::node* _node,
+                std::unique_lock<std::mutex>& _lock ) __attribute__((nonnull));
+
+  counter c_;
+  trees_t trees_;
   std::mutex m_;
   std::condition_variable cv_;
 };
+
 }  // namespace detail
-
-struct transform_buffer {
-  void
-  set(const geometry_msgs::TransformStamped& _tf, bool _stamped);
-
-  geometry_msgs::TransformStamped
-  get(const std::string& _target, const std::string& _source,
-      const ros::Time& _time, const ros::Duration& _tolerance);
-};
 }  // namespace fast_tf
 
 #endif  // FAST_TF_FAST_TF_HPP__
