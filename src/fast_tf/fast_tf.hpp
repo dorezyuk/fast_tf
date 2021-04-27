@@ -1,27 +1,20 @@
 #ifndef FAST_TF_FAST_TF_HPP__
 #define FAST_TF_FAST_TF_HPP__
 
-// ros
-#include <geometry_msgs/TransformStamped.h>
-
-// forward declaration of ros-types, since we just need them for the interface
-namespace ros {
-class Duration;
-class Time;
-}  // namespace ros
-
-#include <Eigen/Geometry>
+// eigen seems to confuse IWYU a lot...
+#include <Eigen/Geometry> // IWYU pragma: keep
+// IWYU pragma: no_include "Eigen/src/Geometry/Transform.h"
 
 // std-lib
 #include <chrono>
 #include <condition_variable>
 #include <list>
 #include <map>
-#include <memory>
 #include <mutex>
+#include <stddef.h>
 #include <string>
-#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 
 namespace fast_tf {

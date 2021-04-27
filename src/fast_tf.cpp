@@ -1,16 +1,22 @@
 #include <fast_tf/fast_tf.hpp>
 
-#include <geometry_msgs/TransformStamped.h>
-#include <ros/console.h>
-#include <ros/duration.h>
-#include <ros/time.h>
-#include <std_msgs/Header.h>
-#include <tf2_eigen/tf2_eigen.h>
+#include <Eigen/Core>
 
+#include <ros/console.h>
+
+#include <algorithm>
 #include <cassert>
 #include <iterator>
+#include <ratio>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
+
+// IWYU pragma: no_include "Eigen/src/Core/GeneralProduct.h"
+// IWYU pragma: no_include "Eigen/src/Geometry/Quaternion.h"
+// IWYU pragma: no_include "Eigen/src/Geometry/Translation.h"
+// IWYU pragma: no_include "src/Core/DenseBase.h"
+// IWYU pragma: no_include "src/Core/MatrixBase.h"
 
 // the __has_builtin is defined under gcc and under clang
 // see https://gcc.gnu.org/onlinedocs/cpp/_005f_005fhas_005fbuiltin.html
@@ -263,20 +269,20 @@ transform_tree::merge(transform_tree& _other) {
   _other.root_ = _other.data_.end();
 }
 
-/// @brief conversion from ros::Time to std::chrono.
-static time_t
-to_time(const ros::Time& _time) {
-  using namespace std::chrono;
-  return time_t(seconds(_time.sec)) + nanoseconds(_time.nsec);
-}
+// /// @brief conversion from ros::Time to std::chrono.
+// static time_t
+// to_time(const ros::Time& _time) {
+//   using namespace std::chrono;
+//   return time_t(seconds(_time.sec)) + nanoseconds(_time.nsec);
+// }
 
-/// @brief conversion from ros::Duration to std::chrono.
-static duration_t
-to_duration(const ros::Duration& _dur) {
-  using namespace std::chrono;
-  return duration_cast<duration_t>(seconds(_dur.sec)) +
-         duration_cast<duration_t>(nanoseconds(_dur.nsec));
-}
+// /// @brief conversion from ros::Duration to std::chrono.
+// static duration_t
+// to_duration(const ros::Duration& _dur) {
+//   using namespace std::chrono;
+//   return duration_cast<duration_t>(seconds(_dur.sec)) +
+//          duration_cast<duration_t>(nanoseconds(_dur.nsec));
+// }
 
 transform_buffer::transform_buffer() : trees_(1) {}
 
@@ -402,7 +408,6 @@ transform_buffer::get(const std::string& _target_frame,
                       const time_t& _query_time, const duration_t& _tolerance) {
   if (_tolerance < duration_t{})
     throw std::runtime_error("tolerance cannot be negative");
-  // todo from now or from _time?
   const auto end_time = clock_t::now() + _tolerance;
 
   std::unique_lock<std::mutex> l{m_};

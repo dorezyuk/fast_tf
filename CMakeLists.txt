@@ -34,7 +34,7 @@ target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
 find_program(iwyu_path NAMES include-what-you-use iwyu)
 if(iwyu_path)
   message("running with include-what-you-get")
-  # set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
+  set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
 endif()
 
 #############
