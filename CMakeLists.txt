@@ -87,6 +87,7 @@ if(CATKIN_ENABLE_TESTING)
   find_package(rostest REQUIRED)
   catkin_add_gtest(${PROJECT_NAME}_gtest
     test/test_dynamic_transform.cpp
+    test/test_transform_buffer.cpp
     test/test_transform_tree.cpp)
   target_link_libraries(${PROJECT_NAME}_gtest ${PROJECT_NAME} gtest_main)
 endif()

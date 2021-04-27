@@ -15,6 +15,7 @@ class Time;
 // std-lib
 #include <chrono>
 #include <condition_variable>
+#include <list>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -165,7 +166,6 @@ struct transform_tree {
   /// @brief Returns true, if the tree holds no data.
   bool
   empty() const noexcept {
-    assert(data_.end() == root_ && "root must point to the end");
     return data_.empty();
   }
 
@@ -218,19 +218,40 @@ struct transform_tree {
 struct transform_buffer {
   transform_buffer();
 
+  /// @brief Inserts a transform into the buffer.
+  ///
+  /// @param _parent_frame frame id of the parent link.
+  /// @param _child_frame frame id of the child link.
+  /// @param _stamp_time time of the transform (only for dynamic links).
+  /// @param _tf the transform.
+  /// @param _is_static flag, if the link is dynamic or static.
+  ///
+  /// @throw std::runtime_error if the tree would become ill formed.
+  /// @throw std::bad_variant_access if a link would change its type
+  /// (dynamic/static).
   void
-  set(const geometry_msgs::TransformStamped& _tf, bool _is_static);
+  set(const std::string& _parent_frame, const std::string& _child_frame,
+      const time_t& _stamp_time, const Eigen::Isometry3d& _tf, bool _is_static);
 
-  geometry_msgs::TransformStamped
-  get(const std::string& _target, const std::string& _source,
-      const ros::Time& _time, const ros::Duration& _tolerance);
+  /// @brief Retrieves a transform.
+  ///
+  /// @param _target_frame frame id of the target link.
+  /// @param _source_frame frame id of the source link.
+  /// @param _query_time time of the query (only for dynamic links).
+  /// @param _tolerance timeout how long to wait for the query.
+  ///
+  /// @throw std::runtime_error if no transformation can be retrieved.
+  Eigen::Isometry3d
+  get(const std::string& _target_frame, const std::string& _source_frame,
+      const time_t& _query_time, const duration_t& _tolerance);
 
 protected:
   // we may have multiple trees.
   using trees_t = std::list<transform_tree>;
 
   [[nodiscard]] bool
-  same_tree(trees_t::iterator _l, trees_t::iterator _r) const noexcept {
+  same_tree(trees_t::const_iterator _l,
+            trees_t::const_iterator _r) const noexcept {
     return _l != trees_.end() && _r != trees_.end() && _l == _r;
   }
 
@@ -238,8 +259,9 @@ protected:
   emplace(const std::string& _parent_frame, const std::string& _child_frame,
           bool _is_static);
 
-  [[nodiscard]] std::pair<trees_t::iterator, transform_tree::iterator>
-  find(const std::string& _frame);
+  [[nodiscard]] std::pair<trees_t::const_iterator,
+                          transform_tree::const_iterator>
+  find(const std::string& _frame) const noexcept;
 
   void
   merge(const std::string& _parent_frame, const std::string& _child_frame);
@@ -250,8 +272,8 @@ protected:
   // attribute will be ignored on non gcc compilers
   Eigen::Isometry3d
   get_transform(const time_t& _query_time, const time_t& _end_time,
-                const transform_tree::node* _node,
-                std::unique_lock<std::mutex>& _lock ) __attribute__((nonnull));
+                const transform_tree::node*& _node,
+                std::unique_lock<std::mutex>& _lock) __attribute__((nonnull));
 
   counter c_;
   trees_t trees_;

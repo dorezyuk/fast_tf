@@ -260,6 +260,7 @@ transform_tree::merge(transform_tree& _other) {
   // only root shall remain in the _other since this is the connecting link.
   assert(_other.data_.size() == 1 && "duplicated links detected");
   _other.data_.clear();
+  _other.root_ = _other.data_.end();
 }
 
 /// @brief conversion from ros::Time to std::chrono.
@@ -289,7 +290,7 @@ transform_buffer::emplace(const std::string& _parent_frame,
       return tree.emplace(_parent_frame, _child_frame, _is_static);
     }
     catch (std::runtime_error& _ex) {
-      // a totally normal phenomenon
+      // completely normal phenomenon
       continue;
     }
   }
@@ -303,13 +304,14 @@ transform_buffer::emplace(const std::string& _parent_frame,
   return node;
 }
 
-std::pair<transform_buffer::trees_t::iterator, transform_tree::iterator>
-transform_buffer::find(const std::string& _frame) {
+std::pair<transform_buffer::trees_t::const_iterator,
+          transform_tree::const_iterator>
+transform_buffer::find(const std::string& _frame) const noexcept {
   for (auto tree = trees_.begin(); tree != trees_.end(); ++tree) {
     if (auto res = tree->data_.find(_frame); res != tree->data_.end())
       return std::make_pair(tree, res);
   }
-  return std::make_pair(trees_.end(), transform_tree::iterator{});
+  return std::make_pair(trees_.end(), transform_tree::const_iterator{});
 }
 
 bool
@@ -323,6 +325,7 @@ transform_buffer::merge(const std::string& _common_frame) {
   if (t2 == trees_.end())
     return false;
 
+  // we may throw if the will become ill-formed
   t1->merge(*t2);
   trees_.erase(t2);
   return true;
@@ -336,18 +339,19 @@ transform_buffer::merge(const std::string& _parent_frame,
 }
 
 void
-transform_buffer::set(const geometry_msgs::TransformStamped& _tf,
+transform_buffer::set(const std::string& _parent_frame,
+                      const std::string& _child_frame,
+                      const time_t& _stamp_time, const Eigen::Isometry3d& _tf,
                       bool _is_static) {
   std::unique_lock<std::mutex> l(m_);
-  auto node = emplace(_tf.header.frame_id, _tf.child_frame_id, _is_static);
+  auto node = emplace(_parent_frame, _child_frame, _is_static);
 
-  Eigen::Isometry3d tf;
   if (_is_static)
-    std::get<0>(node.first->second.data).set(tf);
+    std::get<0>(node.first->second.data).set(_tf);
   else {
     // dt is the dynamic transform
     auto& dt = std::get<1>(node.first->second.data);
-    dt.set(to_time(_tf.header.stamp), tf);
+    dt.set(_stamp_time, _tf);
     // check if there is someone waiting for this transform
     if (dt)
       cv_.notify_all();
@@ -357,7 +361,8 @@ transform_buffer::set(const geometry_msgs::TransformStamped& _tf,
   if (!node.second)
     return;
 
-  merge(_tf.header.frame_id, _tf.child_frame_id);
+  // will throw if the tree will become ill-formed
+  merge(_parent_frame, _child_frame);
 
   // notify if someone is waiting
   if (c_)
@@ -367,7 +372,7 @@ transform_buffer::set(const geometry_msgs::TransformStamped& _tf,
 Eigen::Isometry3d
 transform_buffer::get_transform(const time_t& _query_time,
                                 const time_t& _end_time,
-                                const transform_tree::node* _node,
+                                const transform_tree::node*& _node,
                                 std::unique_lock<std::mutex>& _lock) {
   auto curr_node = _node;
   // advance to the next node
@@ -391,25 +396,28 @@ transform_buffer::get_transform(const time_t& _query_time,
   }
 }
 
-geometry_msgs::TransformStamped
-transform_buffer::get(const std::string& _target, const std::string& _source,
-                      const ros::Time& _time, const ros::Duration& _tolerance) {
-  std::unique_lock<std::mutex> l{m_};
+Eigen::Isometry3d
+transform_buffer::get(const std::string& _target_frame,
+                      const std::string& _source_frame,
+                      const time_t& _query_time, const duration_t& _tolerance) {
+  if (_tolerance < duration_t{})
+    throw std::runtime_error("tolerance cannot be negative");
   // todo from now or from _time?
-  const auto timeout =
-      std::chrono::system_clock::now() + std::chrono::seconds{1};
+  const auto end_time = clock_t::now() + _tolerance;
+
+  std::unique_lock<std::mutex> l{m_};
   // find the correct iterators
-  auto target = find(_target);
-  auto source = find(_source);
+  auto target = find(_target_frame);
+  auto source = find(_source_frame);
 
   while (!same_tree(target.first, source.first)) {
     detail::counter::scoped_signal ss{c_};
-    if (cv_.wait_until(l, timeout) == std::cv_status::timeout)
+    if (cv_.wait_until(l, end_time) == std::cv_status::timeout)
       throw std::runtime_error("timeout: unconnected trees");
 
     // try again to connect the query
-    target = find(_target);
-    source = find(_source);
+    target = find(_target_frame);
+    source = find(_source_frame);
   }
 
   assert(same_tree(target.first, source.first) && "unconnected trees");
@@ -419,7 +427,7 @@ transform_buffer::get(const std::string& _target, const std::string& _source,
 
   // we checked that hte source and target are valid nodes - so deref is safe.
   // we order source and target such that source has higher depth.
-  bool do_swap = s->depth < t->depth;
+  const bool do_swap = s->depth < t->depth;
   if (do_swap)
     std::swap(s, t);
 
@@ -427,37 +435,27 @@ transform_buffer::get(const std::string& _target, const std::string& _source,
   Eigen::Isometry3d source_root(Eigen::Isometry3d::Identity());
   Eigen::Isometry3d target_root(Eigen::Isometry3d::Identity());
 
-  // convert to std::chrono
-  const time_t query_time(to_time(_time));
-  const duration_t tol(to_duration(_tolerance));
-  if (tol < duration_t{})
-    throw std::runtime_error("tolerance cannot be negative");
-
-  const auto end_time = clock_t::now() + tol;
-
   // advance until both branches have the same depth
+  // todo check aliasing
+  // todo check how long the multiplication takes and decide if can_transform is
+  // required.
   while (t->depth < s->depth) {
-    source_root = get_transform(query_time, end_time, s, l) * source_root;
+    source_root = get_transform(_query_time, end_time, s, l) * source_root;
   }
 
   // at this point both leaves must have equal depth
   assert(t->depth == s->depth && "target and source depth missmatch");
 
-  // walk up with both until both branches reach their common parent
-  while (t->parent != s->parent) {
-    source_root = get_transform(query_time, end_time, s, l) * source_root;
-    target_root = get_transform(query_time, end_time, t, l) * target_root;
+  // walk up with both until both branches meet
+  while (t != s) {
+    source_root = get_transform(_query_time, end_time, s, l) * source_root;
+    target_root = get_transform(_query_time, end_time, t, l) * target_root;
   }
 
   // we must check in which dir the tf is actually required.
   if (do_swap)
     std::swap(source_root, target_root);
-  Eigen::Isometry3d source_target = target_root.inverse() * source_root;
-  auto msg = tf2::eigenToTransform(source_target);
-  msg.child_frame_id = _source;
-  msg.header.frame_id = _target;
-  msg.header.stamp = _time;
-  return msg;
+  return {target_root.inverse() * source_root};
 }
 
 }  // namespace detail
