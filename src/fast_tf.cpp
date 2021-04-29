@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cassert>
 #include <iterator>
-#include <ratio>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -39,17 +38,33 @@
 namespace fast_tf {
 namespace detail {
 
+/// @brief Creates a joined transform from the splitted data.
+static Eigen::Isometry3d
+join(const split_transform& _split) noexcept {
+  return Eigen::Isometry3d{_split.translation * _split.rotation};
+}
+
+/// @brief Creates a split transform from the joined data.
+static split_transform
+split(const Eigen::Isometry3d& _join) noexcept {
+  return {Eigen::Translation3d{_join.translation()},
+          Eigen::Quaterniond{_join.rotation()}};
+}
+
 static_transform::static_transform(const Eigen::Isometry3d& _data) noexcept :
     data_(_data) {}
 
-inline void
+static_transform::static_transform(const split_transform& _data) noexcept :
+    data_(join(_data)) {}
+
+void
 static_transform::set(const Eigen::Isometry3d& _data) noexcept {
   data_ = _data;
 }
 
-inline const Eigen::Isometry3d&
-static_transform::get() const noexcept {
-  return data_;
+void
+static_transform::set(const split_transform& _data) noexcept {
+  data_ = join(_data);
 }
 
 counter::scoped_signal::scoped_signal(const counter& _c) :
@@ -68,7 +83,7 @@ dynamic_transform::dynamic_transform(const duration_t& _dur) noexcept :
 
 void
 dynamic_transform::set(const time_t& _time,
-                       const Eigen::Isometry3d& _data) noexcept {
+                       const split_transform& _data) noexcept {
   // mostlikely the data will come in in order and emplace_hint will not change
   // the entry if its already present.
   map_.emplace_hint(map_.end(), _time, _data);
@@ -78,6 +93,12 @@ dynamic_transform::set(const time_t& _time,
   // rebalance
   auto lb = map_.lower_bound(std::prev(map_.end())->first - dur_);
   map_.erase(map_.begin(), lb);
+}
+
+void
+dynamic_transform::set(const time_t& _time,
+                       const Eigen::Isometry3d& _data) noexcept {
+  set(_time, split(_data));
 }
 
 /// @brief returns the vector interpolation between _l and _r.
@@ -93,21 +114,20 @@ lerp(const Eigen::Vector3d& _l, const Eigen::Vector3d& _r, double _t) noexcept {
 /// @param _l left value.
 /// @param _r right value.
 /// @param _t the scale, must be in the interval [0, 1].
-static Eigen::Isometry3d
-lerp(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r,
-     double _t) noexcept {
+static split_transform
+lerp(const split_transform& _l, const split_transform& _r, double _t) noexcept {
   assert(_t >= 0 && "ratio must be bigger than 0");
   assert(_t <= 1 && "ratio must be smaller than 1");
-  const Eigen::Quaterniond ql(_l.rotation());
-  const Eigen::Quaterniond qr(_l.rotation());
 
-  return {Eigen::Translation3d{lerp(_l.translation(), _r.translation(), _t)} *
-          ql.slerp(_t, qr)};
+  return {Eigen::Translation3d{
+              lerp(_l.translation.vector(), _r.translation.vector(), _t)},
+          _l.rotation.slerp(_t, _r.rotation)};
 }
 
 Eigen::Isometry3d
 dynamic_transform::get(const time_t& _time) const {
   // get the first element not smaller then _time
+  // todo check if assume last helps us..
   const auto lb = map_.lower_bound(_time);
 
   // we will end up in this case if the map_ is either empty or if the stored
@@ -117,7 +137,7 @@ dynamic_transform::get(const time_t& _time) const {
 
   // if the time stamps match exactly, we don't need to interpolate
   if (lb->first == _time)
-    return lb->second;
+    return join(lb->second);
   else {
     // check if we have two points to interpolate
     if (lb == map_.begin())
@@ -130,7 +150,7 @@ dynamic_transform::get(const time_t& _time) const {
     const auto ratio = static_cast<double>((_time - lower->first).count()) /
                        (lb->first - lower->first).count();
 
-    return lerp(lower->second, lb->second, ratio);
+    return join(lerp(lower->second, lb->second, ratio));
   }
 }
 
@@ -204,7 +224,7 @@ transform_tree::emplace(const std::string& _parent_frame,
 
   // get or create a new parent node. this call will throw if the tree would be
   // ill-formed.
-  auto parent = emplace_parent(_parent_frame, _child_frame, _is_static);
+  const auto parent = emplace_parent(_parent_frame, _child_frame, _is_static);
 
   // check if the child is known
   auto child = data_.find(_child_frame);
@@ -331,7 +351,7 @@ transform_buffer::merge(const std::string& _common_frame) {
   if (t2 == trees_.end())
     return false;
 
-  // we may throw if the will become ill-formed
+  // we may throw if the tree will become ill-formed
   t1->merge(*t2);
   trees_.erase(t2);
   return true;
@@ -347,7 +367,7 @@ transform_buffer::merge(const std::string& _parent_frame,
 void
 transform_buffer::set(const std::string& _parent_frame,
                       const std::string& _child_frame,
-                      const time_t& _stamp_time, const Eigen::Isometry3d& _tf,
+                      const time_t& _stamp_time, const split_transform& _tf,
                       bool _is_static) {
   std::unique_lock<std::mutex> l(m_);
   auto node = emplace(_parent_frame, _child_frame, _is_static);
@@ -373,6 +393,14 @@ transform_buffer::set(const std::string& _parent_frame,
   // notify if someone is waiting
   if (c_)
     cv_.notify_all();
+}
+
+void
+transform_buffer::set(const std::string& _parent_frame,
+                      const std::string& _child_frame,
+                      const time_t& _stamp_time, const Eigen::Isometry3d& _tf,
+                      bool _is_static) {
+  set(_parent_frame, _child_frame, _stamp_time, split(_tf), _is_static);
 }
 
 Eigen::Isometry3d

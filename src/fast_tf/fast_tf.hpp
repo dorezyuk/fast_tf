@@ -2,8 +2,11 @@
 #define FAST_TF_FAST_TF_HPP__
 
 // eigen seems to confuse IWYU a lot...
-#include <Eigen/Geometry> // IWYU pragma: keep
+#include <Eigen/Core>
+#include <Eigen/Geometry>  // IWYU pragma: keep
+// IWYU pragma: no_include "Eigen/src/Geometry/Quaternion.h"
 // IWYU pragma: no_include "Eigen/src/Geometry/Transform.h"
+// IWYU pragma: no_include "Eigen/src/Geometry/Translation.h"
 
 // std-lib
 #include <chrono>
@@ -20,6 +23,17 @@
 namespace fast_tf {
 namespace detail {
 
+/// @brief Class storing translation and rotation separately.
+///
+/// The benchmarking showed that we would spend a lot of time at retrieving the
+/// rotation from Eigen::Isometry3d. Since we get these informations already
+/// separated, we will store them also seperated.
+struct split_transform {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  Eigen::Translation3d translation;
+  Eigen::Quaterniond rotation;
+};
+
 // below the definition of two transform types: static and dynamic: static
 // transforms are time-independent; dynamic transforms store a sequence of
 // transforms. both classes correspont to the tf2::StaticCache and
@@ -31,9 +45,13 @@ namespace detail {
 struct static_transform {
   static_transform() = default;
   explicit static_transform(const Eigen::Isometry3d& _data) noexcept;
+  explicit static_transform(const split_transform& _data) noexcept;
 
   void
   set(const Eigen::Isometry3d& _data) noexcept;
+
+  void
+  set(const split_transform& _data) noexcept;
 
   const Eigen::Isometry3d&
   get() const noexcept;
@@ -41,6 +59,12 @@ struct static_transform {
 protected:
   Eigen::Isometry3d data_;  ///< the data...
 };
+
+// this is the most used method of our class - so we inline it.
+inline const Eigen::Isometry3d&
+static_transform::get() const noexcept {
+  return data_;
+}
 
 // replacing the ros::Time with std::chrono::time_point yields in ~100%
 // speedup (!) of the dynamic_transform::set function.
@@ -109,6 +133,13 @@ struct dynamic_transform : public counter {
   void
   set(const time_t& _time, const Eigen::Isometry3d& _data) noexcept;
 
+  /// @brief Inserts new data and prunes stale data.
+  ///
+  /// Function identical with its overload - the only difference is the data
+  /// format.
+  void
+  set(const time_t& _time, const split_transform& _data) noexcept;
+
   /// @brief Returns the closest element to the query time.
   /// @param _time The query time.
   /// @throw std::runtime_error if no data can be retrieved.
@@ -121,7 +152,7 @@ private:
   // remarks: the benchmarking (see perf/perf_dynamic_transform.cpp) showed that
   // the std::map performs better than boost::container::flat_map or std::deque
   // for our usecase.
-  using impl_t = std::map<time_t, Eigen::Isometry3d>;
+  using impl_t = std::map<time_t, split_transform>;
   impl_t map_;  ///< impl holding the data
 };
 
@@ -225,6 +256,14 @@ struct transform_buffer {
   void
   set(const std::string& _parent_frame, const std::string& _child_frame,
       const time_t& _stamp_time, const Eigen::Isometry3d& _tf, bool _is_static);
+
+  /// @brief Inserts a transform into the buffer.
+  ///
+  /// Function identical with its overload - the only difference is the data
+  /// format.
+  void
+  set(const std::string& _parent_frame, const std::string& _child_frame,
+      const time_t& _stamp_time, const split_transform& _tf, bool _is_static);
 
   /// @brief Retrieves a transform.
   ///

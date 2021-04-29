@@ -55,7 +55,9 @@ BENCHMARK_DEFINE_F(tf_fixture, write)(State& _state) {
 BENCHMARK_DEFINE_F(dynamic_transform_fixture, write)(State& _state) {
   dynamic_transform cache(1s);
   auto now = std::chrono::system_clock::now();
-  const std::chrono::milliseconds increment(1000 / steps);
+  const std::chrono::duration<double> _increment(1. / steps);
+  const std::chrono::nanoseconds increment(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(_increment));
 
   for (auto _ : _state) {
     for (size_t ii = 0; ii != steps; ++ii) {
@@ -123,6 +125,56 @@ BENCHMARK_DEFINE_F(dynamic_transform_fixture, random_write)(State& _state) {
 // at the end. the parameter determines the size of the queue.
 BENCHMARK_REGISTER_F(tf_fixture, random_write)->Range(10, 1000);
 BENCHMARK_REGISTER_F(dynamic_transform_fixture, random_write)->Range(10, 1000);
+
+BENCHMARK_DEFINE_F(tf_fixture, read)(State& _state) {
+  tf2::TimeCache cache(ros::Duration(1));
+  data.stamp_ = ros::Time::now();
+  const ros::Duration increment(1. / steps);
+
+  // populate the data
+  for (size_t ii = 0; ii != steps; ++ii) {
+    data.stamp_ += increment;
+    if (!cache.insertData(data, &err))
+      std::cout << "failed to insert: " << err << std::endl;
+  }
+
+  tf2::TransformStorage out;
+  // the query time is between the latest time point and its predecessor
+  data.stamp_ -= (increment * 0.5);
+  for (auto _ : _state) {
+    benchmark::DoNotOptimize(cache.getData(data.stamp_, out, &err));
+  }
+}
+
+BENCHMARK_DEFINE_F(dynamic_transform_fixture, read)(State& _state) {
+  dynamic_transform cache(1s);
+  auto now = std::chrono::system_clock::now();
+  const std::chrono::duration<double> _increment(1. / steps);
+  const std::chrono::nanoseconds increment(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(_increment));
+
+  // populate the data
+  for (size_t ii = 0; ii != steps; ++ii) {
+    now += increment;
+    cache.set(now, data);
+  }
+
+  // the query time is between the latest time point and its predecessor
+  const std::chrono::duration<double> _decrement(.5 / steps);
+  const std::chrono::nanoseconds decrement(
+      std::chrono::duration_cast<std::chrono::nanoseconds>(_decrement));
+  now -= decrement;
+  for (auto _ : _state) {
+    benchmark::DoNotOptimize(cache.get(now));
+  }
+}
+
+// benchmark checks the performance for the getting the latest transformation
+// for the proposed and the default tf2 implementation. this case represents the
+// "best" (and very unrealistic) case where the query time corresponds to the
+// last write time.
+BENCHMARK_REGISTER_F(tf_fixture, read)->Range(10, 1000);
+BENCHMARK_REGISTER_F(dynamic_transform_fixture, read)->Range(10, 1000);
 
 int
 main(int argc, char** argv) {

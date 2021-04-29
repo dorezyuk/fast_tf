@@ -112,93 +112,78 @@ struct populated_buffer_fixture : transform_buffer_fixture {
   }
 };
 
+/// @brief Returns the Frobenius norm
+///
+/// see https://en.wikipedia.org/wiki/Matrix_norm#Frobenius_norm and
+/// https://eigen.tuxfamily.org/dox/classEigen_1_1MatrixBase.html#ac8da566526419f9742a6c471bbd87e0a
+static double
+get_norm(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r) {
+  return (_l.matrix() - _r.matrix()).norm();
+}
+
 // check the children
 TEST_F(populated_buffer_fixture, root_one) {
-  ASSERT_EQ(tb.get("root", "1", now, 0ms).matrix(), root_one.matrix());
-  ASSERT_EQ(tb.get("1", "root", now, 0ms).matrix(),
-            root_one.inverse().matrix());
+  // account for numerical issues
+  ASSERT_LT(get_norm(tb.get("root", "1", now, 0ms), root_one), 1e-6);
+  ASSERT_LT(get_norm(tb.get("1", "root", now, 0ms), root_one.inverse()), 1e-6);
 }
 
 TEST_F(populated_buffer_fixture, root_two) {
-  ASSERT_EQ(tb.get("root", "2", now, 0ms).matrix(), root_two.matrix());
-  ASSERT_EQ(tb.get("2", "root", now, 0ms).matrix(),
-            root_two.inverse().matrix());
+  ASSERT_LT(get_norm(tb.get("root", "2", now, 0ms), root_two), 1e-6);
+  ASSERT_LT(get_norm(tb.get("2", "root", now, 0ms), root_two.inverse()), 1e-6);
 }
 
 TEST_F(populated_buffer_fixture, one_tree) {
-  ASSERT_EQ(tb.get("1", "3", now, 0ms).matrix(), one_tree.matrix());
-  ASSERT_EQ(tb.get("3", "1", now, 0ms).matrix(), one_tree.inverse().matrix());
+  ASSERT_LT(get_norm(tb.get("1", "3", now, 0ms), one_tree), 1e-6);
+  ASSERT_LT(get_norm(tb.get("3", "1", now, 0ms), one_tree.inverse()), 1e-6);
 }
 
 TEST_F(populated_buffer_fixture, one_four) {
-  ASSERT_EQ(tb.get("1", "4", now, 0ms).matrix(), one_four.matrix());
-  ASSERT_EQ(tb.get("4", "1", now, 0ms).matrix(), one_four.inverse().matrix());
+  ASSERT_LT(get_norm(tb.get("1", "4", now, 0ms), one_four), 1e-6);
+  ASSERT_LT(get_norm(tb.get("4", "1", now, 0ms), one_four.inverse()), 1e-6);
 }
 
 // check the siblings
 TEST_F(populated_buffer_fixture, tree_four) {
   const Eigen::Isometry3d res = one_tree.inverse() * one_four;
-  // account for numerical issues
-  const auto diff_34 =
-      (tb.get("3", "4", now, 0ms).matrix() - res.matrix()).norm();
 
-  const auto diff_43 =
-      (tb.get("4", "3", now, 0ms).matrix() - res.inverse().matrix()).norm();
-
-  ASSERT_NEAR(diff_34, 0, 1e-6);
-  ASSERT_NEAR(diff_43, 0, 1e-6);
+  ASSERT_LT(get_norm(tb.get("3", "4", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("4", "3", now, 0ms), res.inverse()), 1e-6);
 }
 
 TEST_F(populated_buffer_fixture, one_two) {
   const Eigen::Isometry3d res = root_one.inverse() * root_two;
 
-  // account for numerical issues
-  const auto diff_12 =
-      (tb.get("1", "2", now, 0ms).matrix() - res.matrix()).norm();
-
-  const auto diff_21 =
-      (tb.get("2", "1", now, 0ms).matrix() - res.inverse().matrix()).norm();
-
-  ASSERT_NEAR(diff_12, 0, 1e-6);
-  ASSERT_NEAR(diff_21, 0, 1e-6);
+  ASSERT_LT(get_norm(tb.get("1", "2", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("2", "1", now, 0ms), res.inverse()), 1e-6);
 }
 
 // check the grand children
 TEST_F(populated_buffer_fixture, root_tree) {
   const Eigen::Isometry3d res = root_one * one_tree;
-  ASSERT_EQ(tb.get("root", "3", now, 0ms).matrix(), res.matrix());
-  ASSERT_EQ(tb.get("3", "root", now, 0ms).matrix(), res.inverse().matrix());
+
+  ASSERT_LT(get_norm(tb.get("root", "3", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("3", "root", now, 0ms), res.inverse()), 1e-6);
 }
 
 TEST_F(populated_buffer_fixture, root_four) {
   const Eigen::Isometry3d res = root_one * one_four;
-  ASSERT_EQ(tb.get("root", "4", now, 0ms).matrix(), res.matrix());
-  ASSERT_EQ(tb.get("4", "root", now, 0ms).matrix(), res.inverse().matrix());
+
+  ASSERT_LT(get_norm(tb.get("root", "4", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("4", "root", now, 0ms), res.inverse()), 1e-6);
 }
 
 // check the aunt
 TEST_F(populated_buffer_fixture, two_tree) {
   const Eigen::Isometry3d res = root_two.inverse() * root_one * one_tree;
 
-  const auto diff_23 =
-      (tb.get("2", "3", now, 0ms).matrix() - res.matrix()).norm();
-
-  const auto diff_32 =
-      (tb.get("3", "2", now, 0ms).matrix() - res.inverse().matrix()).norm();
-
-  ASSERT_NEAR(diff_23, 0, 1e-6);
-  ASSERT_NEAR(diff_32, 0, 1e-6);
+  ASSERT_LT(get_norm(tb.get("2", "3", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("3", "2", now, 0ms), res.inverse()), 1e-6);
 }
 
 TEST_F(populated_buffer_fixture, two_four) {
   const Eigen::Isometry3d res = root_two.inverse() * root_one * one_four;
 
-  const auto diff_24 =
-      (tb.get("2", "4", now, 0ms).matrix() - res.matrix()).norm();
-
-  const auto diff_42 =
-      (tb.get("4", "2", now, 0ms).matrix() - res.inverse().matrix()).norm();
-
-  ASSERT_NEAR(diff_24, 0, 1e-6);
-  ASSERT_NEAR(diff_42, 0, 1e-6);
+  ASSERT_LT(get_norm(tb.get("2", "4", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("4", "2", now, 0ms), res.inverse()), 1e-6);
 }
