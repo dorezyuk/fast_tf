@@ -1,6 +1,11 @@
 #include <fast_tf/fast_tf.hpp>
 
 #include <Eigen/Core>
+// IWYU pragma: no_include "Eigen/src/Core/GeneralProduct.h"
+// IWYU pragma: no_include "Eigen/src/Geometry/Quaternion.h"
+// IWYU pragma: no_include "Eigen/src/Geometry/Translation.h"
+// IWYU pragma: no_include "src/Core/DenseBase.h"
+// IWYU pragma: no_include "src/Core/MatrixBase.h"
 
 #include <ros/console.h>
 
@@ -10,12 +15,8 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+// IWYU pragma: no_include <ratio>
 
-// IWYU pragma: no_include "Eigen/src/Core/GeneralProduct.h"
-// IWYU pragma: no_include "Eigen/src/Geometry/Quaternion.h"
-// IWYU pragma: no_include "Eigen/src/Geometry/Translation.h"
-// IWYU pragma: no_include "src/Core/DenseBase.h"
-// IWYU pragma: no_include "src/Core/MatrixBase.h"
 
 // the __has_builtin is defined under gcc and under clang
 // see https://gcc.gnu.org/onlinedocs/cpp/_005f_005fhas_005fbuiltin.html

@@ -100,7 +100,10 @@ set(${PROJECT_NAME}_BENCHMARK "Enable benchmarking" OFF)
 if(${PROJECT_NAME}_BENCHMARK)
   find_package(benchmark)
   if(benchmark_FOUND)
-    add_executable(${PROJECT_NAME}_perf perf/perf_dynamic_transform.cpp)
+    add_executable(${PROJECT_NAME}_perf
+      perf/perf_dynamic_transform.cpp
+      perf/perf_transform_buffer.cpp
+      perf/perf_transform_prod.cpp)
     target_link_libraries(${PROJECT_NAME}_perf benchmark::benchmark ${PROJECT_NAME})
   else()
     message("benchmark library not found")
