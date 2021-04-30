@@ -28,7 +28,7 @@ namespace detail {
 /// The benchmarking showed that we would spend a lot of time at retrieving the
 /// rotation from Eigen::Isometry3d. Since we get these informations already
 /// separated, we will store them also seperated.
-struct split_transform {
+struct transform {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   Eigen::Translation3d translation;
   Eigen::Quaterniond rotation;
@@ -45,13 +45,13 @@ struct split_transform {
 struct static_transform {
   static_transform() = default;
   explicit static_transform(const Eigen::Isometry3d& _data) noexcept;
-  explicit static_transform(const split_transform& _data) noexcept;
+  explicit static_transform(const transform& _data) noexcept;
 
   void
   set(const Eigen::Isometry3d& _data) noexcept;
 
   void
-  set(const split_transform& _data) noexcept;
+  set(const transform& _data) noexcept;
 
   const Eigen::Isometry3d&
   get() const noexcept;
@@ -138,7 +138,7 @@ struct dynamic_transform : public counter {
   /// Function identical with its overload - the only difference is the data
   /// format.
   void
-  set(const time_t& _time, const split_transform& _data) noexcept;
+  set(const time_t& _time, const transform& _data) noexcept;
 
   /// @brief Returns the closest element to the query time.
   /// @param _time The query time.
@@ -152,7 +152,7 @@ private:
   // remarks: the benchmarking (see perf/perf_dynamic_transform.cpp) showed that
   // the std::map performs better than boost::container::flat_map or std::deque
   // for our usecase.
-  using impl_t = std::map<time_t, split_transform>;
+  using impl_t = std::map<time_t, transform>;
   impl_t map_;  ///< impl holding the data
 };
 
@@ -263,7 +263,7 @@ struct transform_buffer {
   /// format.
   void
   set(const std::string& _parent_frame, const std::string& _child_frame,
-      const time_t& _stamp_time, const split_transform& _tf, bool _is_static);
+      const time_t& _stamp_time, const transform& _tf, bool _is_static);
 
   /// @brief Retrieves a transform.
   ///

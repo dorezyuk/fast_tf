@@ -40,12 +40,12 @@ namespace detail {
 
 /// @brief Creates a joined transform from the splitted data.
 static Eigen::Isometry3d
-join(const split_transform& _split) noexcept {
+join(const transform& _split) noexcept {
   return Eigen::Isometry3d{_split.translation * _split.rotation};
 }
 
 /// @brief Creates a split transform from the joined data.
-static split_transform
+static transform
 split(const Eigen::Isometry3d& _join) noexcept {
   return {Eigen::Translation3d{_join.translation()},
           Eigen::Quaterniond{_join.rotation()}};
@@ -54,7 +54,7 @@ split(const Eigen::Isometry3d& _join) noexcept {
 static_transform::static_transform(const Eigen::Isometry3d& _data) noexcept :
     data_(_data) {}
 
-static_transform::static_transform(const split_transform& _data) noexcept :
+static_transform::static_transform(const transform& _data) noexcept :
     data_(join(_data)) {}
 
 void
@@ -63,7 +63,7 @@ static_transform::set(const Eigen::Isometry3d& _data) noexcept {
 }
 
 void
-static_transform::set(const split_transform& _data) noexcept {
+static_transform::set(const transform& _data) noexcept {
   data_ = join(_data);
 }
 
@@ -82,8 +82,7 @@ dynamic_transform::dynamic_transform(const duration_t& _dur) noexcept :
 }
 
 void
-dynamic_transform::set(const time_t& _time,
-                       const split_transform& _data) noexcept {
+dynamic_transform::set(const time_t& _time, const transform& _data) noexcept {
   // mostlikely the data will come in in order and emplace_hint will not change
   // the entry if its already present.
   map_.emplace_hint(map_.end(), _time, _data);
@@ -114,8 +113,8 @@ lerp(const Eigen::Vector3d& _l, const Eigen::Vector3d& _r, double _t) noexcept {
 /// @param _l left value.
 /// @param _r right value.
 /// @param _t the scale, must be in the interval [0, 1].
-static split_transform
-lerp(const split_transform& _l, const split_transform& _r, double _t) noexcept {
+static transform
+lerp(const transform& _l, const transform& _r, double _t) noexcept {
   assert(_t >= 0 && "ratio must be bigger than 0");
   assert(_t <= 1 && "ratio must be smaller than 1");
 
@@ -367,7 +366,7 @@ transform_buffer::merge(const std::string& _parent_frame,
 void
 transform_buffer::set(const std::string& _parent_frame,
                       const std::string& _child_frame,
-                      const time_t& _stamp_time, const split_transform& _tf,
+                      const time_t& _stamp_time, const transform& _tf,
                       bool _is_static) {
   std::unique_lock<std::mutex> l(m_);
   auto node = emplace(_parent_frame, _child_frame, _is_static);
