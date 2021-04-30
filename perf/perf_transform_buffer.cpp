@@ -28,6 +28,7 @@ struct tf_buffer_core_static_chain_fixture : public benchmark::Fixture {
 /// @brief Fixture providing our transform_buffer
 struct transform_buffer_static_chain_fixture : public benchmark::Fixture {
   fast_tf::detail::transform_buffer buffer;
+  std::chrono::nanoseconds timeout = 0ns;
 
   void
   SetUp(const State& _state) override {
@@ -39,6 +40,27 @@ struct transform_buffer_static_chain_fixture : public benchmark::Fixture {
   }
 };
 
+BENCHMARK_F(transform_buffer_static_chain_fixture, forward)
+(State& _state) {
+  const auto now = fast_tf::detail::clock_t::now();
+  for (auto _ : _state)
+    benchmark::DoNotOptimize(buffer.get("1", "100", now, timeout));
+}
+
+BENCHMARK_F(transform_buffer_static_chain_fixture, backward)
+(State& _state) {
+  const auto now = fast_tf::detail::clock_t::now();
+  for (auto _ : _state)
+    benchmark::DoNotOptimize(buffer.get("100", "1", now, timeout));
+}
+
+BENCHMARK_F(transform_buffer_static_chain_fixture, backward_reduced)
+(State& _state) {
+  const auto now = fast_tf::detail::clock_t::now();
+  for (auto _ : _state)
+    benchmark::DoNotOptimize(buffer.get("100", "99", now, timeout));
+}
+
 BENCHMARK_F(tf_buffer_core_static_chain_fixture, forward)
 (State& _state) {
   const auto now = ros::Time::now();
@@ -46,27 +68,16 @@ BENCHMARK_F(tf_buffer_core_static_chain_fixture, forward)
     benchmark::DoNotOptimize(buffer.lookupTransform("1", "100", now));
 }
 
-BENCHMARK_F(transform_buffer_static_chain_fixture, forward)
+BENCHMARK_F(tf_buffer_core_static_chain_fixture, backward)
 (State& _state) {
-  const auto now = fast_tf::detail::clock_t::now();
-  const auto timeout = 0ms;
+  const auto now = ros::Time::now();
   for (auto _ : _state)
-    benchmark::DoNotOptimize(buffer.get("1", "100", now, timeout));
+    benchmark::DoNotOptimize(buffer.lookupTransform("100", "1", now));
 }
 
-
-BENCHMARK_F(tf_buffer_core_static_chain_fixture, backward)
+BENCHMARK_F(tf_buffer_core_static_chain_fixture, backward_reduced)
 (State& _state) {
   const auto now = ros::Time::now();
   for (auto _ : _state)
     benchmark::DoNotOptimize(buffer.lookupTransform("100", "99", now));
 }
-
-BENCHMARK_F(transform_buffer_static_chain_fixture, backward)
-(State& _state) {
-  const auto now = fast_tf::detail::clock_t::now();
-  const auto timeout = 0ms;
-  for (auto _ : _state)
-    benchmark::DoNotOptimize(buffer.get("100", "99", now, timeout));
-}
-

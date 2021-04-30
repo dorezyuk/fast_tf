@@ -20,23 +20,16 @@ eigen_isometry_prod(State& _state) {
     benchmark::DoNotOptimize(tf1 * tf2);
 }
 
-static const Eigen::Vector3d
-quat_prod(const Eigen::Quaterniond& _q, const Eigen::Vector3d& _v) {
-    return _q * _v;
-}
+struct tf_transform {
+  tf2::Vector3 v;
+  tf2::Quaternion q;
+};
 
-static void
-eigen_manual_prod(State& _state) {
-  Eigen::Vector3d v1(1, 2, 3);
-  Eigen::Quaterniond q1(-0.002, -0.678, 0.226, 0.699);
-
-  Eigen::Vector3d v2(3, 4, 1);
-  Eigen::Quaterniond q2(-0.003, -0.945, 0.315, 0.091);
-
-  for (auto _ : _state) {
-    benchmark::DoNotOptimize(quat_prod(q2, v1) + v2);
-    benchmark::DoNotOptimize(q2 * q1);
-  }
+// without this the compiler will still remove the call to the product. this can
+// be seen when running the benchmark below with valgrind --tool=callgrind.
+__attribute__((noinline)) tf_transform
+tf2_product(const tf_transform& _l, const tf_transform& _r) {
+  return {tf2::quatRotate(_l.q, _r.v) + _l.v, _l.q * _r.q};
 }
 
 static void
@@ -47,12 +40,12 @@ tf_transform_accum_prod(State& _state) {
   tf2::Quaternion q2(-0.003, -0.945, 0.315, 0.091);
   tf2::Vector3 v2(3, 4, 1);
 
-  for (auto _ : _state) {
-    benchmark::DoNotOptimize(tf2::quatRotate(q2, v1) + v2);
-    benchmark::DoNotOptimize(q2 * q1);
-  }
+  tf_transform tf1{v1, q1};
+  tf_transform tf2{v2, q2};
+  for (auto _ : _state)
+    benchmark::DoNotOptimize(tf2_product(tf1, tf2));
 }
 
+// benchmarks comparing the tf product of transform with the eigen-based.
 BENCHMARK(eigen_isometry_prod);
-BENCHMARK(eigen_manual_prod);
 BENCHMARK(tf_transform_accum_prod);
