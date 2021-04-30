@@ -17,7 +17,6 @@
 #include <utility>
 // IWYU pragma: no_include <ratio>
 
-
 // the __has_builtin is defined under gcc and under clang
 // see https://gcc.gnu.org/onlinedocs/cpp/_005f_005fhas_005fbuiltin.html
 // see https://clang.llvm.org/docs/LanguageExtensions.html
@@ -405,30 +404,26 @@ transform_buffer::set(const std::string& _parent_frame,
 }
 
 Eigen::Isometry3d
-transform_buffer::get_transform(const time_t& _query_time,
-                                const time_t& _end_time,
-                                const transform_tree::node*& _node,
-                                std::unique_lock<std::mutex>& _lock) {
-  auto curr_node = _node;
-  // advance to the next node
+transform_buffer::get_dynamic_transform(
+    const time_t& _query_time, const time_t& _end_time,
+    const dynamic_transform& _dyn_tr,
+    std::unique_lock<std::mutex>& _lock) const {
+  counter::scoped_signal signal{_dyn_tr};
+  do {
+    try {
+      return _dyn_tr.get(_query_time);
+    }
+    catch (const std::runtime_error& _ex) {
+      ROS_DEBUG_STREAM_THROTTLE(1, "failed to get the transform");
+    }
+  } while (cv_.wait_until(_lock, _end_time) != std::cv_status::timeout);
+  throw std::runtime_error("no transform available");
+}
+
+static void
+advance(const transform_tree::node*& _node) {
   _node = _node->parent;
   assert(_node && "tree holds a nullptr");
-
-  if (curr_node->data.index() == 0)
-    return std::get<0>(curr_node->data).get();
-  else {
-    auto& _dyn_tr = std::get<1>(curr_node->data);
-    counter::scoped_signal signal{_dyn_tr};
-    do {
-      try {
-        return _dyn_tr.get(_query_time);
-      }
-      catch (const std::runtime_error& _ex) {
-        ROS_DEBUG_STREAM_THROTTLE(1, "failed to get the transform");
-      }
-    } while (cv_.wait_until(_lock, _end_time) != std::cv_status::timeout);
-    throw std::runtime_error("no transform available");
-  }
 }
 
 Eigen::Isometry3d
@@ -469,12 +464,23 @@ transform_buffer::get(const std::string& _target_frame,
   Eigen::Isometry3d source_root(Eigen::Isometry3d::Identity());
   Eigen::Isometry3d target_root(Eigen::Isometry3d::Identity());
 
+  // we need a lot of local variables for this call - so we make it a lambda.
+  // note: the static_stansform returns by reference; the dynamic_transform
+  // returns by value.
+  auto get_transform = [&](const variable_transform& _var_tr,
+                           const Eigen::Isometry3d& _right) {
+    if (_var_tr.index() == 0)
+      return std::get<0>(_var_tr).get() * _right;
+    else
+      return get_dynamic_transform(_query_time, end_time, std::get<1>(_var_tr),
+                                   l) *
+             _right;
+  };
+
   // advance until both branches have the same depth
-  // todo check aliasing
-  // todo check how long the multiplication takes and decide if can_transform is
-  // required.
   while (t->depth < s->depth) {
-    source_root = get_transform(_query_time, end_time, s, l) * source_root;
+    source_root = get_transform(s->data, source_root);
+    advance(s);
   }
 
   // at this point both leaves must have equal depth
@@ -482,8 +488,11 @@ transform_buffer::get(const std::string& _target_frame,
 
   // walk up with both until both branches meet
   while (t != s) {
-    source_root = get_transform(_query_time, end_time, s, l) * source_root;
-    target_root = get_transform(_query_time, end_time, t, l) * target_root;
+    source_root = get_transform(s->data, source_root);
+    target_root = get_transform(t->data, target_root);
+
+    advance(s);
+    advance(t);
   }
 
   // we must check in which dir the tf is actually required.

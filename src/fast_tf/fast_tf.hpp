@@ -301,16 +301,16 @@ protected:
   bool
   merge(const std::string& _common_frame);
 
-  // attribute will be ignored on non gcc compilers
   Eigen::Isometry3d
-  get_transform(const time_t& _query_time, const time_t& _end_time,
-                const transform_tree::node*& _node,
-                std::unique_lock<std::mutex>& _lock) __attribute__((nonnull));
+  get_dynamic_transform(const time_t& _query_time, const time_t& _end_time,
+                        const dynamic_transform& _dyn_tr,
+                        std::unique_lock<std::mutex>& _lock) const;
 
   counter c_;
   trees_t trees_;
-  std::mutex m_;
-  std::condition_variable cv_;
+
+  mutable std::mutex m_;
+  mutable std::condition_variable cv_;
 };
 
 }  // namespace detail
