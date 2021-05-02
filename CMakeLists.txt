@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 add_compile_options(-Wpedantic -Wall -Wextra)
 set(CATKIN_REQUIRED_PACKAGES tf2 tf2_ros tf2_geometry_msgs)
 find_package(catkin REQUIRED ${CATKIN_REQUIRED_PACKAGES})
+find_package(Eigen3 REQUIRED)
 
 ###################################
 ## catkin specific configuration ##
@@ -21,8 +22,12 @@ catkin_package(
 ###########
 
 add_library(${PROJECT_NAME} src/fast_tf.cpp)
-target_include_directories(${PROJECT_NAME} PUBLIC src ${catkin_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
+target_include_directories(${PROJECT_NAME} PUBLIC src ${EIGEN3_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME})
+
+add_library(${PROJECT_NAME}_ros src/fast_tf_ros.cpp)
+target_include_directories(${PROJECT_NAME}_ros PUBLIC src ${catkin_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME}_ros ${PROJECT_NAME} ${catkin_LIBRARIES})
 
 ####################
 ## Compile Checks ##
@@ -35,6 +40,8 @@ find_program(iwyu_path NAMES include-what-you-use iwyu)
 if(iwyu_path)
   message("running with include-what-you-get")
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
+  set_property(TARGET ${PROJECT_NAME}_ros PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
+
 endif()
 
 #############
@@ -65,7 +72,7 @@ endif()
 #   RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
 # )
 
-## Mark cpp header files for installation
+# ## Mark cpp header files for installation
 # install(DIRECTORY include/${PROJECT_NAME}/
 #   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 #   FILES_MATCHING PATTERN "*.h"
@@ -105,7 +112,8 @@ if(${PROJECT_NAME}_BENCHMARK)
       perf/perf_dynamic_transform.cpp
       perf/perf_transform_buffer.cpp
       perf/perf_transform_prod.cpp)
-    target_link_libraries(${PROJECT_NAME}_perf benchmark::benchmark ${PROJECT_NAME})
+    target_link_libraries(${PROJECT_NAME}_perf benchmark::benchmark ${PROJECT_NAME} ${catkin_LIBRARIES})
+    target_include_directories(${PROJECT_NAME}_perf PRIVATE ${catkin_INCLUDE_DIRS})
   else()
     message("benchmark library not found")
   endif()

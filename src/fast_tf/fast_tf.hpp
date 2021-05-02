@@ -275,7 +275,7 @@ struct transform_buffer {
   /// @throw std::runtime_error if no transformation can be retrieved.
   Eigen::Isometry3d
   get(const std::string& _target_frame, const std::string& _source_frame,
-      const time_t& _query_time, const duration_t& _tolerance);
+      const time_t& _query_time, const duration_t& _tolerance) const;
 
 protected:
   // we may have multiple trees.

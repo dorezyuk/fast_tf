@@ -7,8 +7,6 @@
 // IWYU pragma: no_include "src/Core/DenseBase.h"
 // IWYU pragma: no_include "src/Core/MatrixBase.h"
 
-#include <ros/console.h>
-
 #include <algorithm>
 #include <cassert>
 #include <iterator>
@@ -288,21 +286,6 @@ transform_tree::merge(transform_tree& _other) {
   _other.root_ = _other.data_.end();
 }
 
-// /// @brief conversion from ros::Time to std::chrono.
-// static time_t
-// to_time(const ros::Time& _time) {
-//   using namespace std::chrono;
-//   return time_t(seconds(_time.sec)) + nanoseconds(_time.nsec);
-// }
-
-// /// @brief conversion from ros::Duration to std::chrono.
-// static duration_t
-// to_duration(const ros::Duration& _dur) {
-//   using namespace std::chrono;
-//   return duration_cast<duration_t>(seconds(_dur.sec)) +
-//          duration_cast<duration_t>(nanoseconds(_dur.nsec));
-// }
-
 transform_buffer::transform_buffer() : trees_(1) {}
 
 transform_tree::pair_type
@@ -413,7 +396,7 @@ transform_buffer::get_dynamic_transform(
       return _dyn_tr.get(_query_time);
     }
     catch (const std::runtime_error& _ex) {
-      ROS_DEBUG_STREAM_THROTTLE(1, "failed to get the transform");
+      continue;
     }
   } while (cv_.wait_until(_lock, _end_time) != std::cv_status::timeout);
   throw std::runtime_error("no transform available");
@@ -428,7 +411,8 @@ advance(const transform_tree::node*& _node) {
 Eigen::Isometry3d
 transform_buffer::get(const std::string& _target_frame,
                       const std::string& _source_frame,
-                      const time_t& _query_time, const duration_t& _tolerance) {
+                      const time_t& _query_time,
+                      const duration_t& _tolerance) const {
   if (_tolerance < duration_t{})
     throw std::runtime_error("tolerance cannot be negative");
   const auto end_time = clock_t::now() + _tolerance;
