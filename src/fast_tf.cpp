@@ -453,12 +453,6 @@ transform_buffer::get(const std::string& _target_frame,
   const transform_tree::node* s = &source.second->second;
   const transform_tree::node* t = &target.second->second;
 
-  // we checked that hte source and target are valid nodes - so deref is safe.
-  // we order source and target such that source has higher depth.
-  const bool do_swap = s->depth < t->depth;
-  if (do_swap)
-    std::swap(s, t);
-
   // walk up the tree until we have reached the same depth for both
   Eigen::Isometry3d source_root(Eigen::Isometry3d::Identity());
   Eigen::Isometry3d target_root(Eigen::Isometry3d::Identity());
@@ -476,27 +470,25 @@ transform_buffer::get(const std::string& _target_frame,
              _right;
   };
 
-  // advance until both branches have the same depth
-  while (t->depth < s->depth) {
-    source_root = get_transform(s->data, source_root);
-    advance(s);
-  }
-
-  // at this point both leaves must have equal depth
-  assert(t->depth == s->depth && "target and source depth missmatch");
-
   // walk up with both until both branches meet
   while (t != s) {
-    source_root = get_transform(s->data, source_root);
-    target_root = get_transform(t->data, target_root);
+    if (t->depth < s->depth) {
+      source_root = get_transform(s->data, source_root);
+      advance(s);
+    }
+    else if (t->depth > s->depth) {
+      target_root = get_transform(t->data, target_root);
+      advance(t);
+    }
+    else {
+      source_root = get_transform(s->data, source_root);
+      target_root = get_transform(t->data, target_root);
 
-    advance(s);
-    advance(t);
+      advance(s);
+      advance(t);
+    }
   }
 
-  // we must check in which dir the tf is actually required.
-  if (do_swap)
-    std::swap(source_root, target_root);
   return {target_root.inverse() * source_root};
 }
 
