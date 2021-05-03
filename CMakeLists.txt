@@ -95,14 +95,15 @@ if(CATKIN_ENABLE_TESTING)
     test/test_dynamic_transform.cpp
     test/test_transform_buffer.cpp
     test/test_transform_tree.cpp)
-  target_link_libraries(${PROJECT_NAME}_gtest ${PROJECT_NAME} gtest_main)
+  target_link_libraries(${PROJECT_NAME}_gtest ${PROJECT_NAME} gtest_main ${catkin_LIBRARIES})
+  target_include_directories(${PROJECT_NAME}_gtest PRIVATE ${catkin_INCLUDE_DIRS})
 endif()
 
 ###############
 ## Benchmark ##
 ###############
 
-set(${PROJECT_NAME}_BENCHMARK "Enable benchmarking" OFF)
+set(${PROJECT_NAME}_BENCHMARK ON)
 if(${PROJECT_NAME}_BENCHMARK)
   find_package(benchmark)
   if(benchmark_FOUND)

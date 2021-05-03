@@ -121,6 +121,17 @@ get_norm(const Eigen::Isometry3d& _l, const Eigen::Isometry3d& _r) {
   return (_l.matrix() - _r.matrix()).norm();
 }
 
+// check self-transforms
+TEST_F(populated_buffer_fixture, self_transform) {
+  const Eigen::Isometry3d res(Eigen::Isometry3d::Identity());
+  // account for numerical issues
+  ASSERT_LT(get_norm(tb.get("root", "root", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("1", "1", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("2", "2", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("3", "3", now, 0ms), res), 1e-6);
+  ASSERT_LT(get_norm(tb.get("4", "4", now, 0ms), res), 1e-6);
+}
+
 // check the children
 TEST_F(populated_buffer_fixture, root_one) {
   // account for numerical issues
