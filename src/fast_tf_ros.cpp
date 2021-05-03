@@ -29,6 +29,7 @@
 #include <ratio>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace fast_tf_ros {
@@ -69,6 +70,13 @@ Buffer::setTransform(const geometry_msgs::TransformStamped& _msg,
   catch (const std::runtime_error& _ex) {
     std::stringstream ss;
     ss << _ex.what() << "; authority " << _authority;
+    throw tf2::TransformException(ss.str());
+  }
+  catch (const std::bad_variant_access& _ex) {
+    std::stringstream ss;
+    ss << "the link from" << _msg.header.frame_id << " to "
+       << _msg.child_frame_id << " has already a different type and cannot be "
+       << (_is_static ? "static" : "dynamic") << std::endl;
     throw tf2::TransformException(ss.str());
   }
 }
@@ -181,7 +189,7 @@ TransformListener::TransformListener(BufferSetterInterface& buffer,
   // make a copy of the passed handle since the ros::NodeHandle::subscribe call
   // is not const.
   ros::NodeHandle nh(_nh);
-  
+
   // subscribe to the dynamic and static topics.
   for (const auto& topic : dynamic_topics) {
     auto opts = ros::SubscribeOptions::create<tf2_msgs::TFMessage>(

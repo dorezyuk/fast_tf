@@ -27,7 +27,7 @@ namespace fast_tf_ros {
  * tf2::BufferCore as input - the class which we replaced in the fast_tf
  * library. Therefore we have to replate the tf2::TransformListener's API here.
  *
- * Since this file is the file the user should include, we mimick the default
+ * Since this file is the file the user should include, we mimic the default
  * ROS-style here to ease the transition.
  */
 
