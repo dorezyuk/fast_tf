@@ -1,4 +1,13 @@
-from os import stat
+#!/usr/bin/env python3
+
+# Node which will publish a dynamic transform chain. This node is used for
+# benchmarking the listener_new and listener_legacy nodes.
+#
+# Specify the depth of the chain with the "source" parameter. The parameter
+# must be a unsigned integer, and defaults to three. Additionally you can set a
+# delay (making the benchmark "harder") which will be substracted from the
+# time-stamp before sending out the transform. The delay defaults to zero.
+
 import rospy
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
@@ -28,11 +37,13 @@ if __name__ == '__main__':
     pub = rospy.Publisher("/tf", TFMessage, queue_size=10)
     msg = TFMessage()
 
-    msg.transforms = [make_transform(str(ii), str(ii + 1)) for ii in range(3)]
+    delay = rospy.Duration(rospy.get_param("delay", 0.0))
+    source = rospy.get_param("source", 3)
+    msg.transforms = [make_transform(str(ii), str(ii + 1)) for ii in range(source)]
 
     while not rospy.is_shutdown():
         rospy.sleep(rospy.Duration(0.05))
         for m in msg.transforms:
-            m.header.stamp = rospy.Time.now()
+            m.header.stamp = rospy.Time.now() - delay
 
         pub.publish(msg)

@@ -1,18 +1,18 @@
 #ifndef FAST_TF_PERF_LISTENER_HPP__
 #define FAST_TF_PERF_LISTENER_HPP__
 
-#include <tf2_ros/buffer_interface.h>
 #include <ros/ros.h>
+#include <tf2_ros/buffer_interface.h>
 
 #include <list>
-#include <thread>
 #include <string>
+#include <thread>
 
 static void
 run(const tf2_ros::BufferInterface& _buffer) {
-  ros::NodeHandle nh("~");
+  ros::NodeHandle nh;
   std::list<std::thread> threads;
-  const size_t n_threads = nh.param("threads", 100);
+  const size_t n_threads = std::max(0, nh.param("threads", 100));
   const ros::Duration timeout(nh.param("timeout", 0.1));
   const std::string target("0"), source(std::to_string(nh.param("source", 3)));
 
