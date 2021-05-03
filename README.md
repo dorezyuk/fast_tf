@@ -22,6 +22,7 @@ Following features were added w.r.t. tf2_ros:
  - cycle detection at insertion time.
  - true shortest path computation: a query will evaluate only the nodes which connect the target and source frames.
  - no busy waiting: use condition_variables to wake up a query thread when (relevant) new data becomes available.
+ - check if a link is already static/dynamic - preventing the change.
 
 ## Requirements
 

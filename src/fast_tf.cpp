@@ -13,7 +13,6 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
-// IWYU pragma: no_include <ratio>
 
 // the __has_builtin is defined under gcc and under clang
 // see https://gcc.gnu.org/onlinedocs/cpp/_005f_005fhas_005fbuiltin.html
