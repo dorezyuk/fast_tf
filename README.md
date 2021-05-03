@@ -67,3 +67,10 @@ int main(int argc, char** argv){
   return 0;
 };
 ```
+
+## Missing Features
+
+The FastTF library is still in development. Following features aren't supported yet:
+- call to get the latest transform with ros::Time(0).
+- clearing of the buffer on time-jumps.
+- message-filters.
