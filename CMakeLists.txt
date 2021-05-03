@@ -41,7 +41,6 @@ if(iwyu_path)
   message("running with include-what-you-get")
   set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
   set_property(TARGET ${PROJECT_NAME}_ros PROPERTY CXX_INCLUDE_WHAT_YOU_USE ${iwyu_path})
-
 endif()
 
 #############
@@ -117,4 +116,12 @@ if(${PROJECT_NAME}_BENCHMARK)
   else()
     message("benchmark library not found")
   endif()
+
+  add_executable(listener_legacy perf/listener_legacy.cpp)
+  target_include_directories(listener_legacy PUBLIC ${catkin_INCLUDE_DIRS})
+  target_link_libraries(listener_legacy  ${catkin_LIBRARIES})
+
+  add_executable(listener_new perf/listener_new.cpp)
+  target_include_directories(listener_new PUBLIC ${PROJECT_NAME}_ros)
+  target_link_libraries(listener_new ${PROJECT_NAME}_ros)
 endif()
