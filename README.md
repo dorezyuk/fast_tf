@@ -26,3 +26,43 @@ Following features were added w.r.t. tf2_ros:
 ## Requirements
 
 FastTF depends on Eigen and tf2 (tf2, tf2_ros, tf2_msgs and tf2_eigen). The compilation requires C++17.
+
+## How To Use
+
+When you want to try out this library, replace the tf2_ros classes with fast_tf classes. The code from the [c++ transform listener tutorial](http://wiki.ros.org/tf2/Tutorials/Writing%20a%20tf2%20listener%20%28C%2B%2B%29) would look then something like this:
+
+```c++
+
+// this replaces tf2_ros/transform_listener.h and tf2_ros/buffer.h
+#include <fast_tf/fast_tf_ros.hpp>
+
+// same includes as in the tutorial
+#include <ros/ros.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <geometry_msgs/Twist.h>
+
+int main(int argc, char** argv){
+  ros::init(argc, argv, "fast_tf_listener");
+  ros::NodeHandle node;
+  // turtle-sim related code does not change...
+  // the only thing that changes is the namespace here
+  fast_tf::Buffer tfBuffer;
+  fast_tf::TransformListener tfListener(tfBuffer);
+
+  ros::Rate rate(10.0);
+  while (node.ok()){
+    geometry_msgs::TransformStamped transformStamped;
+    try{
+      transformStamped = tfBuffer.lookupTransform("turtle2", "turtle1", ros::Time::now());
+    }
+    catch (tf2::TransformException &ex) {
+      ROS_WARN("%s",ex.what());
+      ros::Duration(1.0).sleep();
+      continue;
+    }
+
+    rate.sleep();
+  }
+  return 0;
+};
+```

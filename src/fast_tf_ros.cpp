@@ -66,7 +66,7 @@ Buffer::setTransform(const geometry_msgs::TransformStamped& _msg,
     impl_.set(_msg.header.frame_id, _msg.child_frame_id, stamp, data,
               _is_static);
   }
-  catch (const std::runtime_error& _ex) {
+  catch (const std::exception& _ex) {
     std::stringstream ss;
     ss << _ex.what() << "; authority " << _authority;
     throw tf2::TransformException(ss.str());
