@@ -122,6 +122,12 @@ lerp(const transform& _l, const transform& _r, double _t) noexcept {
 
 Eigen::Isometry3d
 dynamic_transform::get(const time_t& _time) const {
+  if (_time.time_since_epoch().count() == 0) {
+    if (map_.empty())
+      throw std::runtime_error("no data");
+    return join(std::prev(map_.end())->second);
+  }
+
   // get the first element not smaller then _time
   // todo check if assume last helps us..
   const auto lb = map_.lower_bound(_time);
